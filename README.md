@@ -27,3 +27,9 @@ Schlankes App-Projekt für die Entwicklung in **SPCK**. Hier liegt **nur der Wet
 Bei fehlenden Daten sind amtliche Informationsangebote maßgeblich. Der Gefahrenbereich ist kein Ersatz für amtliche Warnungen oder Straßensperrungen.
 
 **Wichtig:** `data/` gehört nicht in dieses Projekt; die Git-Ignore-Datei schützt vor versehentlichem Hinzufügen lokaler Modelldaten. Alle bisherigen großen Daten und ihre Git-Historie bleiben im ursprünglichen Repository erhalten.
+
+## Code-Struktur
+
+Die Oberfläche liegt in `index.html`, die vollständige bisherige Wetterlogik unverändert in `assets/app.js`, das Grundlayout in `assets/base.css`, die neue Gestaltung in `assets/mobile-design.css`. Karten-Geografie und Gefahrenbereich bleiben eigenständige Dateien. Der Code wird beim Laden in dieser Reihenfolge eingebunden; **keine** Wetterdaten werden in SPCK eingecheckt.
+
+Qualitätsprüfung auf GitHub: `node scripts/check-mobile.cjs` und Chromium-Tests unter `.github/workflows/mobile-ui.yml`.
