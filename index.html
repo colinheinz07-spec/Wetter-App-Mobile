@@ -317,7 +317,7 @@ function dayRow(d,i){
  const warningNote=i===1?'<div class="day-warning">'+ui('alert',17)+'<span>Glätte · 05–09 Uhr und 17–20 Uhr<br>Besonders auf Nebenstrecken und Brücken.</span></div>':'';
  return '<button class="day" data-day="'+i+'" aria-expanded="'+(openDay===i)+'"><div><div class="dayname">'+d[0]+warning+'</div><div class="daydate">'+d[1]+'</div></div>'+weather(d[4],d[5])+'<div class="tempgroup"><span class="low">'+degrees(d[2])+'</span><div class="range"><div class="range-fill" style="left:'+left+'%;width:'+width+'%"></div></div><span class="high">'+degrees(d[3])+'</span></div>'+ui('chevron',18,'chev')+'</button>'+(openDay===i?'<div class="day-open"><p class="day-summary">'+d[5]+'</p>'+warningNote+'<div class="period-grid">'+d[6].map((p,j)=>'<div class="period"><span>'+p[0]+'</span>'+weather(p[2])+'<b>'+degrees(p[1])+'</b><span class="rain">'+p[3]+' %</span><span class="rain">'+fmt(extra.prec[j])+' mm</span>'+((i===1&&(j===0||j===2))?'<span class="period-risk">Glätte</span>':'')+'</div>').join('')+'</div><p class="section-label">Tageswerte</p><div class="day-values">'+daysValues.map(parameterValue).join('')+'</div></div>':'')
 }
-function setPage(page){if(page!=='map')stopPlay();activePage=page;document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id==='page-'+page));document.querySelectorAll('[data-page]').forEach(b=>{b.classList.toggle('active',b.dataset.page===page);if(b.dataset.page===page)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current')});window.scrollTo(0,0);if(weatherRealEnabled&&page==='weather')renderWeather();if(weatherRealEnabled&&page==='warnings')renderLocalWarnings();if(weatherRealEnabled&&page==='expert')renderRealExpert();if(page==='map'){renderMap();if(mapSource==='model'&&modelDataMode==='real')fetchRealModel(mapModel)}if(page==='hazards')window.WeatherHazards?.open()}
+function setPage(page){if(page!=='map')stopPlay();activePage=page;document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id==='page-'+page));document.querySelectorAll('[data-page]').forEach(b=>{b.classList.toggle('active',b.dataset.page===page);if(b.dataset.page===page)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current')});window.scrollTo(0,0);if(weatherRealEnabled&&page==='weather')renderWeather();if(weatherRealEnabled&&page==='warnings')renderLocalWarnings();if(weatherRealEnabled&&page==='expert')renderRealExpert();if(page==='map'){renderMap();if(mapSource==='model'&&modelDataMode==='real')fetchNativeMapModel(mapModel)}if(page==='hazards')window.WeatherHazards?.open()}
 window.WEATHER_APP_CONTEXT={getLocation:()=>({...location})};
 const nav=[['weather','Wetter','weather'],['map','Karte','map'],['warnings','Warnungen','alert'],['hazards','Gefahren','road'],['expert','Experten','chart']];
 el('navigation').innerHTML=nav.map(([id,label,icon])=>'<button data-page="'+id+'" class="'+(id==='weather'?'active':'')+'" '+(id==='weather'?'aria-current="page"':'')+'>'+ui(icon,24)+label+'</button>').join('');
@@ -1084,7 +1084,7 @@ function advanceLiveTime(){
 function setMapSource(source){
  stopPlay();endMapGesture();mapSource=source;
  if(terrainMode==='topo'){terrainMode='weather-relief';el('map-terrain-mode').value=terrainMode}
- renderMap();if(source==='model'&&modelDataMode==='real')fetchRealModel(mapModel);
+ renderMap();if(source==='model'&&modelDataMode==='real')fetchNativeMapModel(mapModel);
 }
 
 // Local preview cards and a full-screen presentation of the SAME interactive
@@ -1729,11 +1729,11 @@ function modelStatus(){
  return {label:realModelRequests.has(mapModel)?'Modell wird geladen …':'Keine Realdaten verfügbar',detail:modelProvider(mapModel)+'-Modelllauf noch nicht verfügbar. Aktualisieren oder ausdrücklich Demo wählen.'};
 }
 function selectModelDataMode(mode){
- stopPlay();modelDataMode=mode;realModelRevision++;renderMap();if(mode==='real')fetchRealModel(mapModel);
+ stopPlay();modelDataMode=mode;realModelRevision++;renderMap();if(mode==='real')fetchNativeMapModel(mapModel);
 }
 function initModelData(){
  el('map-data-mode').addEventListener('change',e=>selectModelDataMode(e.target.value));
- el('map-data-refresh').addEventListener('click',()=>{if(modelDataMode==='real'){fetchNativeMapModel(mapModel,true);fetchRealModel(mapModel,true)}});
+ el('map-data-refresh').addEventListener('click',()=>{if(modelDataMode==='real'){fetchNativeMapModel(mapModel,true)}});
  modelDataMode='real';el('map-data-mode').value='real';renderMap();
 }
 
@@ -1844,14 +1844,10 @@ function fetchLocationForecast(p,force=false){
  // follow separately so that they cannot block the current-weather card.
  for(const model of regional)fetchLocationTile(p,model,hourly(model)+'anchor/');
  setTimeout(()=>{if(pointKey(homeLocationPoint(location))!==key)return;for(const model of forecastPriority)fetchLocationTile(p,model,base+'generated-native-'+realModelFiles[model]+'/');fetchLocationTile(p,'IFS',base+'generated-native-ifs-short/');fetchLocationTile(p,'GFS',base+'generated-native-gfs-de/');},350);
- // Existing deployments without the new point snapshots still work. Delay
- // the heavy country rasters; only fall back for missing current/long-range coverage.
- setTimeout(()=>{if(pointKey(homeLocationPoint(location))!==key)return;const now=Date.now(),current=currentGridFrame(p,now);
-  if(!current?.d.pointNative){fetchRealModel('ICON-D2',true);fetchHourlyModel('ICON-D2');fetchRealModel('ICON-EU',true);fetchHourlyModel('ICON-EU');fetchNativeTemperature(p)}
-  if(!pointRuns('IFS',p).some(d=>Date.parse(d.run)+d.hours.at(-1)*HOUR_MS>=localBoundary(now,7,0)))fetchRealModel('IFS',true);
-  if(!pointRuns('GFS',p).length)fetchRealModel('GFS',true);
- },2500);
- Promise.allSettled(first).then(()=>{if(pointKey(homeLocationPoint(location))!==key)return;const now=Date.now(),start=Math.floor(now/3600000)*3600000,end=start+24*3600000;const coverage=regional.some(model=>locationRuns(model,p).some(d=>d.hours[1]===1&&Date.parse(d.run)<=start&&Date.parse(d.run)+d.hours.at(-1)*3600000>=end&&now-Date.parse(d.run)<=modelAgeLimit(model)*3600000));if(!coverage){fetchHourlyModel('ICON-D2');fetchHourlyModel('ICON-EU')}refreshPointUI()});
+ // A slow phone must NEVER trigger whole-country JSON downloads. The
+ // published per-location grid packets are the mobile data contract.
+ // If unavailable, show an honest missing value and retry on the next refresh.
+ Promise.allSettled(first).then(()=>{if(pointKey(homeLocationPoint(location))===key)refreshPointUI()});
 }
 function chooseLocationModel(t,p,preferFuture=false,models=forecastPriority){
  if(!p)return null;
@@ -2465,7 +2461,7 @@ function renderRealWeather(){
  deferHomeMaps();fetchLocationForecast(point);cachePointWeather(point);
  const goWarn=el('go-local-warning');if(goWarn)goWarn.onclick=()=>setPage('warnings');
  const expertShortcut=el('go-home-expert');if(expertShortcut)expertShortcut.onclick=()=>setPage('expert');
- document.querySelectorAll('[data-load-model]').forEach(b=>b.onclick=async()=>{b.disabled=true;b.textContent='Lädt …';await fetchRealModel(b.dataset.loadModel,true);if(b.isConnected){b.disabled=false;b.textContent=realModelCache.has(b.dataset.loadModel)?'Geladen':'Noch nicht verfügbar'}});
+ document.querySelectorAll('[data-load-model]').forEach(b=>b.onclick=async()=>{b.disabled=true;b.textContent='Lädt …';await fetchLocationTile(point,b.dataset.loadModel,'https://raw.githubusercontent.com/colinheinz07-spec/Wetter-App/generated-native-'+realModelFiles[b.dataset.loadModel]+'/');if(b.isConnected){b.disabled=false;b.textContent=locationRuns(b.dataset.loadModel,point).length?'Geladen':'Noch nicht verfügbar'}});
  const hourScroll=document.querySelector('#weather-left .hour-scroll');if(hourScroll)hourScroll.scrollLeft=oldScroll;
  document.querySelectorAll('#weather-right details.parameter-group').forEach((d,i)=>{if(i<openGroups.length)d.open=openGroups[i]});
  document.querySelectorAll('#weather-right details.parameter-group summary').forEach(s=>s.addEventListener('click',()=>{if(!s.parentElement.open)fetchPointProfile(point,f)}));
@@ -2604,7 +2600,7 @@ function realRadarLegend(){
 function initRealLive(){realLiveEnabled=true;el('map-live-data-mode').value='real';el('map-live-data-mode').addEventListener('change',e=>{realLiveEnabled=e.target.value==='real';for(const id of ['map-live-scenario','map-live-lightning','map-live-symbols'])el(id).disabled=realLiveEnabled;stopPlay();resetLiveTime();if(realLiveEnabled&&imageLayers.has(liveLayer))fetchLiveImagery();scheduleMap()});resetLiveTime();scheduleMap();refreshRadarClock();setInterval(()=>{if(!document.hidden){refreshRadarClock();if(activePage==='map'&&imageLayers.has(liveLayer))fetchLiveImagery()}},5*60000)}
 function renderRealHomeMaps(point){
  const f=currentGridFrame(point),b=previewBounds(point),area=f&&!f.d.pointLocation?f:forecastPriority.flatMap(model=>[...(hourlyModelCache.get(model)||[]),...modelRuns(model)]).map(d=>({d,hour:d.hours.filter(h=>Date.parse(d.run)+h*HOUR_MS<=Date.now()).at(-1)})).find(a=>a.hour!=null&&Number.isFinite(realPoint(a.d,point,'temp2',a.hour)));
- if(f?.d.pointLocation&&!area)fetchRealModel(f.d.model);
+ // Preview maps avoid downloading full-country grids; detailed tiles load when Karten opens.
  for(const [id] of homeMapLayers){const canvas=el('home-map-'+id);if(!canvas)return;const ctx=canvas.getContext('2d');drawLiveBase(ctx,b);
   if(id==='radar'){
    const date=new Date(radarBaseTime()),status=Date.now()-date.getTime()<3600000?drawRealRadar(ctx,b,date,()=>{if(activePage==='weather')renderHomeMaps()},true):'unavailable';
@@ -2968,8 +2964,8 @@ function renderMap(){
  refreshMap();
 }
 function stopPlay(){if(mapTimer!==null){clearInterval(mapTimer);mapTimer=null}el('map-play').textContent='▶';el('map-play').setAttribute('aria-label',mapSource==='live'?'Radar-Zeitverlauf abspielen':'Vorhersage abspielen')}
-function openMapLayer(id,model,frame=null){stopPlay();mapSource='model';if(terrainMode==='topo'){terrainMode='weather-relief';el('map-terrain-mode').value=terrainMode}if(id&&fields[id])mapLayer=id;if(model&&mapModels[model]){if(mapModel!==model)selectedMapRun=null;mapModel=model;if(model==='ICON-D2'&&mapRegion!=='Deutschland'){mapRegion='Deutschland';mapZoom=1;mapCenter=null;mapPoint=null;mapPointName=''}}if(frame){if(modelDataMode==='real'){selectedMapRun=null;mapTargetTime=frame.time>Date.now()?frame.time:null}else mapHour=frame.hour;mapPoint=frame.point;mapPointName=location.name;}renderMap();if(modelDataMode==='real')fetchRealModel(mapModel);setPage('map')}
-modelSelect.addEventListener('change',()=>{stopPlay();selectedMapRun=null;mapModel=modelSelect.value;renderMap();if(modelDataMode==='real')fetchRealModel(mapModel)});
+function openMapLayer(id,model,frame=null){stopPlay();mapSource='model';if(terrainMode==='topo'){terrainMode='weather-relief';el('map-terrain-mode').value=terrainMode}if(id&&fields[id])mapLayer=id;if(model&&mapModels[model]){if(mapModel!==model)selectedMapRun=null;mapModel=model;if(model==='ICON-D2'&&mapRegion!=='Deutschland'){mapRegion='Deutschland';mapZoom=1;mapCenter=null;mapPoint=null;mapPointName=''}}if(frame){if(modelDataMode==='real'){selectedMapRun=null;mapTargetTime=frame.time>Date.now()?frame.time:null}else mapHour=frame.hour;mapPoint=frame.point;mapPointName=location.name;}renderMap();if(modelDataMode==='real')fetchNativeMapModel(mapModel);setPage('map')}
+modelSelect.addEventListener('change',()=>{stopPlay();selectedMapRun=null;mapModel=modelSelect.value;renderMap();if(modelDataMode==='real')fetchNativeMapModel(mapModel)});
 parameterSelect.addEventListener('change',()=>{stopPlay();mapLayer=parameterSelect.value;renderMap()});
 el('map-run').addEventListener('change',e=>{if(modelDataMode==='real'){selectedMapRun=e.target.value==='auto'?null:Number(e.target.value);realModelRevision++;renderMap()}else{mapRun=+e.target.value;scheduleMap()}});
 document.querySelectorAll('[data-region]').forEach(b=>b.addEventListener('click',()=>{stopPlay();mapRegion=b.dataset.region;selectedMapRun=null;mapZoom=1;mapCenter=null;mapPoint=null;mapPointName='';renderMap();if(mapSource==='model'&&modelDataMode==='real')fetchNativeMapModel(mapModel)}));
@@ -2990,12 +2986,12 @@ el('map-play').addEventListener('click',()=>{if(mapTimer!==null){stopPlay();retu
 // Re-evaluate at the civil hour boundary even if the user leaves the map open.
 // Returning from a suspended mobile tab must also immediately discard old times.
 let modelClockTimer=null;
-function refreshForecastClock(){if(activePage==='map'&&realForecastMap()&&!document.hidden){endMapGesture();renderMap();fetchNativeMapModel(mapModel);if(!realData())fetchRealModel(mapModel,true)}}
+function refreshForecastClock(){if(activePage==='map'&&realForecastMap()&&!document.hidden){endMapGesture();renderMap();fetchNativeMapModel(mapModel)}}
 function scheduleForecastClock(){if(modelClockTimer!==null)clearTimeout(modelClockTimer);const delay=3600000-Date.now()%3600000;modelClockTimer=setTimeout(()=>{refreshForecastClock();scheduleForecastClock()},delay+25)}
 document.addEventListener('visibilitychange',()=>{if(!document.hidden){refreshForecastClock();scheduleForecastClock()}});
 window.addEventListener('focus',()=>{refreshForecastClock();scheduleForecastClock()});
 scheduleForecastClock();
-setInterval(()=>{if(activePage==='map'&&realForecastMap()&&!document.hidden){fetchNativeMapModel(mapModel);if(!realData())fetchRealModel(mapModel,true)}},5*60000);
+setInterval(()=>{if(activePage==='map'&&realForecastMap()&&!document.hidden){fetchNativeMapModel(mapModel)}},5*60000);
 const mapPointers=new Map();
 let pointerMoved=false;
 function centerView(lon,lat){
