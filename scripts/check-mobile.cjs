@@ -43,8 +43,8 @@ assert.equal(windBeaufort(35),5);
 assert.equal(windBeaufort(120),12);
 // No accidental entire-model downloads on mobile startup, forecasts or map navigation.
 assert.equal(source.split('fetchRealModel(').length-1,1,'Only the optional definition of full-grid loader may remain; never call it automatically');
-for(const name of ['snowWater','snowDensity','t1000','rh975','t950','t900','t800','t600','t400','t150','t100']){
- assert.ok(source.includes(name),'Missing optional model field: '+name);
+for(const name of ['snowWater','snowDensity','extraPressureLevels=[1000,975,950,900,800,600,400,150,100]','for(const lev of [1000,975,950,925,900,850,800,700,600,500,400,300,250,200,150,100]']){
+ assert.ok(source.includes(name),'Missing optional model field or pressure catalogue: '+name);
 }
 const solarStart=source.indexOf('function localSolarTimes('),solarEnd=source.indexOf('const realPoint=',solarStart);
 assert.ok(solarStart>0&&solarEnd>solarStart,'Solar calculations missing');
