@@ -41,4 +41,18 @@ assert.ok(modelComfort(32,10,70).value>32,'Hot humid air heat index expected');
 assert.equal(windBeaufort(0),0);
 assert.equal(windBeaufort(35),5);
 assert.equal(windBeaufort(120),12);
+// No accidental entire-model downloads on mobile startup, forecasts or map navigation.
+assert.equal(source.split('fetchRealModel(').length-1,1,'Only the optional definition of full-grid loader may remain; never call it automatically');
+for(const name of ['snowWater','snowDensity','t1000','rh975','t950','t900','t800','t600','t400','t150','t100']){
+ assert.ok(source.includes(name),'Missing optional model field: '+name);
+}
+const solarStart=source.indexOf('function localSolarTimes('),solarEnd=source.indexOf('const realPoint=',solarStart);
+assert.ok(solarStart>0&&solarEnd>solarStart,'Solar calculations missing');
+const solarTimes=vm.runInNewContext(source.slice(solarStart,solarEnd)+'\\nlocalSolarTimes',{localDay:at=>new Date(at).toISOString().slice(0,10)});
+const summer=solarTimes([13.405,52.52],Date.parse('2026-06-21T12:00:00Z'));
+assert.ok(summer&&summer.hours>16&&summer.hours<18,'Berlin summer daylight is out of range');
+const fmtBerlin=d=>new Date(d).toLocaleTimeString('de-DE',{timeZone:'Europe/Berlin',hour:'2-digit',minute:'2-digit'});
+assert.ok(/^04:/.test(fmtBerlin(summer.rise)),'Wrong summer sunrise '+fmtBerlin(summer.rise));
+assert.ok(/^21:/.test(fmtBerlin(summer.set)),'Wrong summer sunset '+fmtBerlin(summer.set));
+
 console.log('PASS: full app JS, assets, light/dark CSS, core weather modules, metrics, size '+(size/1e6).toFixed(2)+' MB');
