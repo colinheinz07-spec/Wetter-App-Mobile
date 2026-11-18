@@ -1,0 +1,14 @@
+# This repository contains UI code only.
+# Do not track weather-model snapshots; fetch them remotely instead.
+/data/
+/model-data/
+/downloads/
+*.grib
+*.grb
+*.grb2
+*.grib2
+*.nc
+*.zarr
+*.zip
+node_modules/
+.DS_Store
