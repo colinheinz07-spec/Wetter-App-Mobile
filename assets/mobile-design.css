@@ -281,3 +281,9 @@ a{color:var(--accent2)}
 @media(prefers-reduced-motion:reduce){
   *,*:before,*:after{animation-duration:.01ms!important;scroll-behavior:auto!important;transition-duration:.01ms!important}
 }
+
+
+.hourly-info{margin-top:10px;border:1px solid var(--line);border-radius:12px;background:rgba(33,63,89,.4);padding:0 12px}
+.hourly-info summary{padding:12px 0;cursor:pointer;color:var(--accent2);font-size:12px;font-weight:700;list-style-position:inside}
+.hourly-info p{color:var(--muted);font-size:12px;line-height:1.6;margin:0 0 10px}
+[data-theme=light] .hourly-info{background:#f0f7fd}
