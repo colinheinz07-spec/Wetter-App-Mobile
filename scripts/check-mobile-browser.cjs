@@ -5,8 +5,8 @@ const path=require('node:path');
 (async()=>{
  const browser=await chromium.launch({headless:true});
  let errors=[],failures=[];
- for(const width of [360,390,768]){
-  const context=await browser.newContext({viewport:{width,height:844},timezoneId:'Europe/Berlin',reducedMotion:'reduce'});
+ for(const width of [320,360,390,768]){
+  const context=await browser.newContext({viewport:{width,height:844},timezoneId:'Europe/Berlin',reducedMotion:'reduce',colorScheme:width===390?'light':'dark'});
   const page=await context.newPage();
   page.on('pageerror',e=>errors.push(width+': '+e.message));
   await page.route(/^https?:\/\//,route=>route.abort());
@@ -15,6 +15,8 @@ const path=require('node:path');
   assert.equal(await page.locator('#navigation button[data-page]').count(),5,'Expected five sections');
   assert.ok(await page.locator('#page-weather .hero').count(), 'Weather hero not rendered');
   assert.ok(await page.locator('#welcome-date').textContent(),'Localized day should be shown');
+  const theme=await page.evaluate(()=>document.documentElement.dataset.theme);
+  assert.equal(theme,width===390?'light':'dark','System theme should match device preference');
   assert.ok(await page.locator('#page-weather .home-shortcuts button').count()===3,'Home shortcuts missing');
   const dimensions=await page.evaluate(()=>({viewport:innerWidth,document:document.documentElement.scrollWidth,nav:document.querySelector('#navigation').getBoundingClientRect().width}));
   if(dimensions.document>dimensions.viewport+3)failures.push(width+'px horizontal overflow '+JSON.stringify(dimensions));
@@ -32,5 +34,5 @@ const path=require('node:path');
  await browser.close();
  assert.deepEqual(failures,[],'Responsive overflow regression');
  assert.deepEqual(errors,[],'JS runtime error');
- console.log('PASS: 360 / 390 / 768 px, navigation, weather, 7-day, road/flood and expert pages, no errors');
+ console.log('PASS: 320 / 360 / 390 / 768 px in light/dark themes, navigation, 7-day, hazards and experts, no errors');
 })().catch(e=>{console.error(e);process.exitCode=1});
