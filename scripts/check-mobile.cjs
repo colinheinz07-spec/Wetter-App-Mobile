@@ -48,7 +48,7 @@ for(const name of ['snowWater','snowDensity','t1000','rh975','t950','t900','t800
 }
 const solarStart=source.indexOf('function localSolarTimes('),solarEnd=source.indexOf('const realPoint=',solarStart);
 assert.ok(solarStart>0&&solarEnd>solarStart,'Solar calculations missing');
-const solarTimes=vm.runInNewContext(source.slice(solarStart,solarEnd)+'\\nlocalSolarTimes',{localDay:at=>new Date(at).toISOString().slice(0,10)});
+const solarTimes=vm.runInNewContext(source.slice(solarStart,solarEnd)+'\nlocalSolarTimes',{localDay:at=>new Date(at).toISOString().slice(0,10)});
 const summer=solarTimes([13.405,52.52],Date.parse('2026-06-21T12:00:00Z'));
 assert.ok(summer&&summer.hours>16&&summer.hours<18,'Berlin summer daylight is out of range');
 const fmtBerlin=d=>new Date(d).toLocaleTimeString('de-DE',{timeZone:'Europe/Berlin',hour:'2-digit',minute:'2-digit'});
