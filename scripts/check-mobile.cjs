@@ -12,7 +12,7 @@ assert.ok(!fs.existsSync('data'),'Large data/ directory must not be included in 
 for(const f of ['assets/basemap.js','assets/geography.js','assets/hazards.js']){
  new vm.Script(fs.readFileSync(f,'utf8'),{filename:f});
 }
-const scripts=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)];
+const scripts=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].filter(match=>match[1].trim().length>0);
 assert.equal(scripts.length,1,'Expected one inline weather runtime; keep every feature');
 const source=scripts[0][1];
 new vm.Script(source,{filename:'index.html weather runtime'});
