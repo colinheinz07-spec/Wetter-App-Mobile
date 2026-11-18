@@ -1,0 +1,283 @@
+/* Weather App Mobile · visual system 2026
+ * Pure CSS. No fonts, images, libraries, or weather data added.
+ * Existing forecast/radar behavior remains unchanged. */
+:root{
+  --page:#081522;
+  --surface:#101f31;
+  --surface2:#192e44;
+  --line:#2a4057;
+  --text:#edf7ff;
+  --muted:#a4b9cb;
+  --accent:#8cdaec;
+  --accent2:#bdeafa;
+  --warm:#ffcf85;
+  --shadow:0 12px 35px rgba(0,6,18,.22);
+  --ui-radius:22px;
+}
+html{scroll-padding-top:20px}
+body{
+  background:radial-gradient(ellipse 650px 540px at 98% -80px,rgba(51,126,172,.18),transparent 80%),
+             radial-gradient(ellipse 550px 450px at -25% 300px,rgba(26,85,127,.11),transparent 75%),
+             var(--page);
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+button,input,select{font-family:inherit}
+button{transition:background-color .16s ease,border-color .16s ease,color .16s ease,box-shadow .16s ease}
+button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible,a:focus-visible{
+  outline:3px solid var(--accent);
+  outline-offset:3px;
+}
+a{color:var(--accent2)}
+.wrap{max-width:1140px}
+.top{padding-top:22px;padding-bottom:15px;min-width:0}
+.loc{padding:7px 0;border-radius:14px;min-width:0}
+.loc h1{font-size:clamp(20px,4.6vw,29px);font-weight:780;letter-spacing:-.75px}
+.loc .pin{width:24px;height:24px;display:grid;place-items:center;color:var(--accent)}
+.locale{line-height:1.3;margin-top:4px}
+.top-actions .icon-button{
+  background:linear-gradient(145deg,rgba(45,79,107,.65),rgba(17,37,59,.75));
+  border-color:rgba(178,222,250,.18);
+  border-radius:14px;
+}
+.panel,.mini,.setting-card{border-color:var(--line);box-shadow:var(--shadow)}
+.panel{border-radius:var(--ui-radius)}
+.page-title h2{font-weight:780;letter-spacing:-.8px}
+.page-title p{line-height:1.55}
+.section-head h2{font-size:19px;font-weight:780;letter-spacing:-.4px}
+.section-head p{line-height:1.45}
+.section-head{gap:11px}
+.badge{font-weight:710}
+.welcome-banner{
+  position:relative;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:14px;
+  padding:13px 15px 14px;
+  margin:3px 0 13px;
+  border:1px solid rgba(116,170,213,.22);
+  border-radius:18px;
+  background:linear-gradient(115deg,rgba(43,84,117,.3),rgba(15,37,60,.6));
+  overflow:hidden;
+}
+.welcome-banner:after{content:"";position:absolute;width:135px;height:135px;right:-49px;top:-94px;border-radius:50%;background:rgba(137,216,237,.1);pointer-events:none}
+.welcome-banner>div{position:relative;z-index:1;min-width:0}
+.welcome-eyebrow{display:block;font-size:10px;font-weight:800;letter-spacing:1.5px;color:var(--accent)}
+.welcome-banner h2{font-size:clamp(17px,3.8vw,22px);line-height:1.25;letter-spacing:-.55px;margin:5px 0}
+.welcome-banner p{color:var(--muted);font-size:12px;line-height:1.4}
+.welcome-date{color:var(--accent2);font-size:11px;text-align:right;max-width:108px;font-weight:650;flex-shrink:0}
+.quick-location{align-items:center}
+.quick-location button{min-height:38px}
+.quick-location #current-gps,.quick-location #favorite-current{
+  border-radius:12px;
+  border-color:var(--line);
+}
+.home-section-tabs{margin:0 0 17px;padding:3px;background:rgba(27,47,69,.76);border:1px solid rgba(164,195,223,.13);border-radius:15px;gap:4px}
+.home-section-tabs button{flex:1;background:transparent;border:0;border-radius:11px;padding:11px 7px;font-size:12px}
+.home-section-tabs button.active{background:linear-gradient(135deg,#295579,#327496);color:#effbff;box-shadow:0 3px 11px rgba(0,0,0,.14)}
+.hero{
+  background:radial-gradient(ellipse 200px 170px at 94% 23%,rgba(164,221,253,.22),transparent 100%),
+    linear-gradient(135deg,#326a8b 0%,#204765 48%,#142f4e 100%);
+  border:1px solid rgba(157,213,245,.26);
+  border-radius:26px;
+  padding:22px 20px 19px;
+  color:#f1f9ff;
+  box-shadow:0 18px 38px rgba(3,26,51,.28);
+}
+.hero:before{background:rgba(159,230,255,.09);filter:blur(35px)}
+.hero .tag{background:rgba(225,247,255,.14);border:1px solid rgba(210,240,255,.24);color:#f0faff;letter-spacing:1.15px;padding:6px 11px}
+.hero-head{gap:10px}
+.hero-head .small{font-size:10px;line-height:1.35;color:#d3eaff!important}
+.hero-weather{min-height:166px}
+.hero-weather .temp{font-size:clamp(69px,18vw,95px);font-weight:340;letter-spacing:-6px}
+.hero-weather .condition{font-size:20px;line-height:1.35;letter-spacing:-.25px;font-weight:735}
+.hero-weather .feels{color:#d5ebf9;font-size:12px;line-height:1.6}
+.hero-weather img{filter:drop-shadow(0 10px 20px rgba(3,20,35,.23))}
+.hero .metrics{border-top:1px solid rgba(227,242,255,.24);gap:10px}
+.hero .metric-label{font-size:11px;color:#cce0ee}
+.hero .metric strong{font-size:17px;letter-spacing:-.3px}
+.hero .hour-detail{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  border-top:0;
+  gap:7px;
+  padding:0;
+  margin:15px 0 0;
+}
+.hero .detail-item{
+  border:1px solid rgba(220,243,255,.14);
+  background:rgba(6,25,46,.22);
+  border-radius:12px;
+  padding:10px 9px;
+  font-size:10px;
+  line-height:1.4;
+  color:#cfe1f0;
+}
+.hero .detail-item b{font-size:14px;color:#fff;margin-top:4px;line-height:1.3}
+.hourly{overflow:hidden;padding-bottom:16px}
+.hour-scroll{gap:7px;margin:0 -8px;padding:4px 8px 8px;overscroll-behavior-x:contain}
+.hour{min-width:73px;flex-basis:73px;min-height:138px;border:1px solid var(--line);border-radius:15px;background:rgba(26,50,73,.55)}
+.hour.active{
+  color:var(--text);
+  background:linear-gradient(155deg,rgba(46,106,146,.83),rgba(37,68,101,.87));
+  border-color:#6bb9d8;
+  box-shadow:0 5px 16px rgba(11,31,56,.25);
+}
+.hour-time{font-size:11px}
+.hour img{width:43px;height:43px;object-fit:contain}
+.hour strong{font-size:19px;font-weight:770}
+.hour .rain{font-weight:720;color:#a7e1f3}
+#hour-detail{border-top:1px solid var(--line);padding-top:13px}
+.detail-item{line-height:1.4}
+.detail-item b{line-height:1.4;font-weight:720}
+.forecast{padding:19px 15px 14px}
+.real-day{
+  padding:13px 6px;
+  border-radius:11px;
+  margin:3px 0;
+  border-bottom:1px solid var(--line);
+  transition:background-color .16s ease;
+}
+.real-day:hover{background:rgba(122,171,207,.08)}
+.real-day[aria-expanded=true]{background:rgba(112,168,207,.11)}
+.real-day .dayname{font-weight:770;font-size:14px}
+.real-day .daydate{line-height:1.5;margin-top:4px}
+.real-day .tempgroup{gap:9px;align-items:center}
+.real-day .tempgroup .low{font-weight:600;font-size:14px}
+.real-day .tempgroup .high{font-weight:790;font-size:16px}
+.real-day .range{width:clamp(32px,7vw,90px);min-width:25px;flex:1 1 auto;height:6px;border-radius:99px}
+.real-day .range-fill{background:linear-gradient(90deg,#65b8eb,#a9e4e9,#ffcb91)}
+.day-open{padding:8px 7px 18px}
+.day-open .period{
+  border:1px solid var(--line);
+  background:linear-gradient(150deg,var(--surface2),rgba(43,70,96,.3));
+  border-radius:13px;
+}
+.day-open .period strong{font-weight:780}
+.day-open .period .rain{font-weight:750}
+.parameter-panel{padding:17px 15px}
+.parameter-panel h2{font-size:19px}
+.parameter-groups{gap:9px}
+.parameter-group{background:rgba(20,40,61,.6);border-radius:15px}
+.parameter-group summary{padding:13px 12px;min-height:53px;gap:10px}
+.parameter-group summary .group-title{font-size:13px;letter-spacing:.05px}
+.parameter-group summary .group-count{font-weight:650}
+.parameter-value{border:1px solid rgba(115,157,192,.1);padding:13px 10px}
+.parameter-value .p-label{font-size:11px;line-height:1.4}
+.parameter-value strong{font-size:20px}
+.parameter-value .p-desc{line-height:1.4}
+.mini{border-radius:19px}
+.warning,.day-warning,.warning-window-row{border-radius:15px}
+.warning{box-shadow:none}
+.map-panel,.settings-card,.level-card{border-radius:22px}
+.map-main{border-radius:16px}
+.map-link,.map-expand,.map-play{transition:transform .15s ease,background .15s ease}
+.map-link:hover,.map-expand:hover,.map-play:hover{transform:translateY(-1px)}
+.map-select select,.setting-row select{min-height:40px}
+.model{border:1px solid transparent;border-radius:13px;min-height:56px}
+.model:hover{border-color:var(--accent)}
+.expert-shortcut{
+  width:100%;margin-top:12px;text-align:left;display:flex;justify-content:space-between;align-items:center;
+  border:1px solid rgba(143,203,236,.25);border-radius:13px;
+  background:linear-gradient(120deg,rgba(61,114,148,.25),rgba(35,77,109,.15));
+  padding:13px 14px;gap:12px;font-size:13px;font-weight:720;color:var(--accent2);
+}
+.expert-shortcut span{font-size:11px;color:var(--muted);display:block;margin-top:4px;font-weight:500}
+.home-shortcuts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0 0 15px}
+.home-shortcuts button{
+  display:flex;align-items:center;justify-content:center;gap:7px;min-height:49px;
+  padding:8px 6px;border:1px solid var(--line);background:var(--surface);
+  border-radius:13px;font-size:11px;font-weight:750;line-height:1.25;
+  box-shadow:0 6px 17px rgba(1,12,29,.09);
+}
+.home-shortcuts button:hover{border-color:var(--accent);background:var(--surface2)}
+.home-shortcuts svg{width:17px;height:17px;color:var(--accent);flex-shrink:0}
+.footer-panel{box-shadow:none;background:transparent}
+.nav-wrap{
+  background:rgba(7,21,36,.93);
+  border-top:1px solid rgba(170,215,243,.14);
+  box-shadow:0 -10px 34px rgba(1,12,28,.2);
+  padding:8px 10px max(11px,env(safe-area-inset-bottom));
+}
+.nav{max-width:680px;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}
+.nav button{
+  border-radius:14px;
+  min-height:55px;
+  gap:5px;
+  padding:9px 3px 7px;
+  font-size:10px;
+  font-weight:720;
+  color:#9badbe;
+  line-height:1.15;
+}
+.nav button svg{width:21px;height:21px}
+.nav button.active{
+  color:#dcfaff;
+  background:linear-gradient(150deg,rgba(54,116,154,.6),rgba(41,80,110,.8));
+  box-shadow:inset 0 0 0 1px rgba(160,225,250,.13);
+}
+.nav button[aria-current=page] svg{stroke-width:2.3}
+@media(min-width:760px){
+  .welcome-banner{margin:6px 0 20px;padding:18px 21px}
+  .welcome-banner h2{font-size:25px}
+  .welcome-banner p{font-size:13px}
+  .hero{padding:28px 25px 23px}
+  .hero-weather{min-height:190px}
+  .hour-scroll{gap:9px}
+  .hour{min-width:78px;flex-basis:78px}
+  .forecast{padding:24px}
+  .home-shortcuts button{font-size:13px;min-height:56px}
+}
+@media(max-width:420px){
+  .top{padding-top:14px}
+  .welcome-banner{padding:12px 13px}
+  .welcome-banner p{font-size:11px}
+  .welcome-date{font-size:10px;max-width:82px}
+  .hero{padding:19px 15px 16px}
+  .hero .hour-detail{gap:5px}
+  .hero .detail-item{padding:8px 6px;font-size:9px}
+  .hero .detail-item b{font-size:12px;overflow-wrap:anywhere}
+  .real-day{grid-template-columns:minmax(0,1fr) 36px minmax(108px,auto) 16px;gap:6px}
+  .real-day .tempgroup{gap:5px}
+  .real-day .range{width:32px}
+  .nav{gap:1px}
+  .nav button{font-size:9px}
+  .home-shortcuts button{font-size:10px;gap:4px}
+  .home-shortcuts svg{width:15px;height:15px}
+}
+:root[data-theme=light]{
+  --page:#f3f8fd;
+  --surface:#ffffff;
+  --surface2:#edf5fb;
+  --line:#d3e3ee;
+  --text:#1a3247;
+  --muted:#516b7f;
+  --accent:#226f91;
+  --accent2:#246f95;
+  --shadow:0 9px 26px rgba(28,70,105,.07);
+}
+[data-theme=light] body{
+ background:radial-gradient(ellipse 560px 450px at 95% 0%,rgba(115,185,223,.2),transparent 80%),var(--page);
+}
+[data-theme=light] .welcome-banner{
+ background:linear-gradient(130deg,#edf7ff,#e2f0fa);
+ border-color:#cce3f1;
+}
+[data-theme=light] .home-section-tabs{background:#e3eff8;border-color:#c8ddec}
+[data-theme=light] .home-section-tabs button.active{background:linear-gradient(125deg,#d4eaf8,#bfe4f3);color:#194d70;box-shadow:0 2px 8px #1a4b6920}
+[data-theme=light] .hero{color:#fff}
+[data-theme=light] .hour{background:#f4f9fe}
+[data-theme=light] .hour.active{background:linear-gradient(125deg,#cdeafa,#b5deef);color:#174c72;border-color:#6daaca}
+[data-theme=light] .hour.active .hour-time,[data-theme=light] .hour.active strong{color:#19486a}
+[data-theme=light] .hour .rain{color:#286b91}
+[data-theme=light] .parameter-group{background:#f3f8fc}
+[data-theme=light] .day-open .period{background:#f0f7fd}
+[data-theme=light] .home-shortcuts button{background:#fff}
+[data-theme=light] .expert-shortcut{background:#e9f4fc;color:#225f83}
+[data-theme=light] .nav-wrap{background:rgba(250,253,255,.94);border-color:#d6e4ef;box-shadow:0 -10px 32px rgba(57,94,126,.1)}
+[data-theme=light] .nav button{color:#60758a}
+[data-theme=light] .nav button.active{background:#d8ecfa;color:#1d5c84;box-shadow:inset 0 0 0 1px #c4e1f2}
+@media(prefers-reduced-motion:reduce){
+  *,*:before,*:after{animation-duration:.01ms!important;scroll-behavior:auto!important;transition-duration:.01ms!important}
+}
