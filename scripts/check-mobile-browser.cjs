@@ -26,6 +26,11 @@ const path=require('node:path');
   assert.equal(await page.locator('#hazard-water').isVisible(),true,'Flood area missing');
   await page.locator('#navigation button[data-page="expert"]').click();
   assert.ok(await page.locator('#expert-data details').count()>2,'Expert groups lost');
+  await page.locator('[data-expert-help="SBCAPE"]').click();
+  assert.equal(await page.locator('#parameter-help-dialog').evaluate(d=>d.open),true,'Parameter explanation did not open');
+  assert.match(await page.locator('#parameter-help-description').innerText(),/Auftriebsenergie/);
+  await page.locator('#parameter-help-close').click();
+  assert.equal(await page.locator('#parameter-help-dialog').evaluate(d=>d.open),false,'Parameter explanation did not close');
   await page.locator('#navigation button[data-page="weather"]').click();
   assert.ok(await page.locator('#page-weather.active .forecast').count(),'7-day forecast missing');
   await page.screenshot({path:'ui-'+width+'.png',fullPage:true});
@@ -36,3 +41,4 @@ const path=require('node:path');
  assert.deepEqual(errors,[],'JS runtime error');
  console.log('PASS: 320 / 360 / 390 / 768 px in light/dark themes, navigation, 7-day, hazards and experts, no errors');
 })().catch(e=>{console.error(e);process.exitCode=1});
+

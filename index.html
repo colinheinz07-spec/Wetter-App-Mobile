@@ -39,7 +39,7 @@
       <div class="segmented" id="map-source"><button data-map-source="model" class="active" aria-pressed="true">Modelle</button><button data-map-source="live" aria-pressed="false">Live-Wetter</button></div>
       <div class="segmented" id="map-region"><button class="active" data-region="Deutschland">Deutschland</button><button data-region="Europa">Europa</button></div>
       <div class="panel map-panel">
-        <div class="section-head" id="map-normal-head"><div><h2 id="map-layer-title">Temperatur · 2 m</h2><p id="map-view-description">Modellkarte · synthetische Testfelder</p></div><div class="map-normal-actions"><span class="badge" id="map-model-badge">ICON-D2</span><button class="map-expand" id="map-full-open" aria-label="Vollbild öffnen">⛶</button></div></div>
+        <div class="section-head" id="map-normal-head"><div><div class="parameter-title-row"><h2 id="map-layer-title">Temperatur · 2 m</h2><button type="button" class="parameter-help" id="map-parameter-help" aria-label="Aktuellen Kartenparameter erklären" hidden>ⓘ</button></div><p id="map-view-description">Modellkarte · synthetische Testfelder</p></div><div class="map-normal-actions"><span class="badge" id="map-model-badge">ICON-D2</span><button class="map-expand" id="map-full-open" aria-label="Vollbild öffnen">⛶</button></div></div>
         <div class="map-full-toolbar"><button id="map-full-close" aria-label="Karte schließen">‹</button><div class="map-full-title"><strong id="map-full-title">Wetterkarte</strong><small id="map-full-subtitle">DEMO</small></div><button id="map-info-toggle" aria-label="Karteninformationen" aria-expanded="false">ⓘ</button></div>
         <div class="map-full-layer-tabs" id="map-full-layer-tabs" hidden><button data-full-layer="radar">Radar</button><button data-full-layer="reflectivity">dBZ</button><button data-full-layer="satellite">Satellit</button><button data-full-layer="temperature">Temperatur</button><button data-full-layer="wind">Wind</button></div>
         <details class="map-settings-fold"><summary>Modell, Parameter & Karteneinstellungen</summary><div id="map-settings">
@@ -117,6 +117,7 @@
   </main>
 </div>
 <div class="nav-wrap"><nav class="nav" id="navigation" aria-label="Hauptnavigation"></nav></div>
+<dialog id="parameter-help-dialog" class="parameter-help-dialog" aria-labelledby="parameter-help-title" aria-describedby="parameter-help-description"><header><h2 id="parameter-help-title">Parameter</h2><button type="button" id="parameter-help-close" aria-label="Erklärung schließen" autofocus>×</button></header><p id="parameter-help-description"></p><p class="small" id="parameter-help-unit"></p></dialog>
 <div id="location-dialog" class="dialog" role="dialog" aria-modal="true" aria-label="Ort auswählen"><div class="dialog-inner"><div class="dialog-title"><h2>Ort suchen</h2><button id="close-dialog" class="icon-button" aria-label="Schließen"></button></div><button id="dialog-gps" class="settings-action">◎ Mein Standort verwenden</button><p id="dialog-gps-status" class="setting-note" role="status" hidden></p><div class="place-search-row"><input id="search-input" type="search" autocomplete="off" enterkeyhint="search" aria-label="Ort, Ortsteil oder Postleitzahl suchen" placeholder="Ort, Ortsteil oder PLZ…"><button type="button" id="place-online-search" aria-label="Weitere Orte online suchen">Online suchen</button></div><p id="place-search-status" class="place-search-status" role="status"></p><div class="location-results" id="location-results"></div><p class="place-source-note">Lokale Suche: deutsche Gemeinden und europäische Orte · Destatis / Natural Earth. Für Ortsteile, Weiler und PLZ zusätzlich online suchen (Suchbegriff wird an <a href="https://photon.komoot.io/" target="_blank" rel="noopener">Photon</a> gesendet). Online-Daten © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap-Mitwirkende</a>. Wetterwerte weiterhin Demo.</p></div></div>
 <script src="assets/basemap.js"></script>
 <script src="assets/geography.js"></script>
@@ -124,5 +125,6 @@
 <script src="assets/hazards.js" defer></script>
 </body>
 </html>
+
 
 

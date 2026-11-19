@@ -8,6 +8,7 @@ on:
       - 'assets/**'
       - 'scripts/check-mobile.cjs'
       - 'scripts/check-mobile-browser.cjs'
+      - 'scripts/test-data-performance*.cjs'
       - '.github/workflows/mobile-ui.yml'
   pull_request:
 permissions:
@@ -22,6 +23,7 @@ jobs:
         with:
           node-version: '22'
       - run: node scripts/check-mobile.cjs
+      - run: node scripts/test-data-performance-unit.cjs
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 18
@@ -34,6 +36,8 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Test actual app in mobile browser
         run: node scripts/check-mobile-browser.cjs
+      - name: Test model and radar availability, caching and explanations
+        run: node scripts/test-data-performance.cjs
       - name: Upload screenshots for review
         if: always()
         uses: actions/upload-artifact@v4
@@ -42,3 +46,4 @@ jobs:
           path: ui-*.png
           if-no-files-found: ignore
           retention-days: 3
+
