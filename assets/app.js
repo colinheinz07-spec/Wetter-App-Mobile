@@ -1337,6 +1337,8 @@ function mapInterval(d,id,h){
 }
 function mapFieldRequirements(d,p,h){
  if(p.id==='synoptic')return [[h,'z500'],[h,'slp']];
+ if(p.id==='syn850')return [[h,'t850'],[h,'slp']];
+ if(p.id==='syn500')return [[h,'t500'],[h,'z500']];
  if(p.id==='jet'&&d.frames?.[h]?.u300&&d.frames?.[h]?.v300)return [[h,'u300'],[h,'v300']];
  const id=p.id==='rh'?'rh2':p.id,dynamic=id==='rainrate'||id==='radiation',interval=dynamic?mapInterval(d,id,h):/^rain\d+$/.test(id)||id==='conv'||id==='strat'?p.interval:0;
  if(dynamic&&!Number.isFinite(interval))return [[-1,id==='radiation'?'solarTotal':'rainTotal']];
@@ -1483,6 +1485,8 @@ function derivedPointValue(id,read){
  if(/^wind(?:p|dirp)\d+$/.test(id)){const lev=id.match(/\d+$/)[0],u=read('u'+lev),v=read('v'+lev);if(!Number.isFinite(u)||!Number.isFinite(v))return NaN;return id.startsWith('winddir')?(Math.hypot(u,v)<.05?NaN:(Math.atan2(-u,-v)*180/Math.PI+360)%360):Math.hypot(u,v)}
  if(/^q\d+$/.test(id)){const lev=+id.slice(1),t=read('t'+lev),rh=read('rh'+lev);if(!Number.isFinite(t)||t<=-243||!(rh>=0&&rh<=100))return NaN;const e=rh/100*6.112*Math.exp(17.67*t/(t+243.5));return e<lev?1000*.622*e/(lev-.378*e):NaN}
  if(id==='synoptic')return read('z500');
+ if(id==='syn850')return read('t850');
+ if(id==='syn500')return read('t500');
  if(id==='jet'){const u=read('u300'),v=read('v300');return Number.isFinite(u)&&Number.isFinite(v)?Math.hypot(u,v):read('jet');}
  if(id==='s850500')return Math.hypot(read('u500')-read('u850'),read('v500')-read('v850'));
  if(id==='lclApprox'){const t=read('temp2'),td=read('dew');return Number.isFinite(t)&&Number.isFinite(td)&&td<=t+.3?125*Math.max(0,t-td):NaN}
@@ -2529,6 +2533,8 @@ const palettes={
 const P=(id,group,label,unit,stops,palette,mode,interval=0)=>({id,group,label,unit,stops,palette,mode,interval});
 const mapParameters=[
  P('synoptic','Großwetterlage','Großwetterlage · 500 hPa + Bodendruck','dam',[480,500,520,535,550,565,580,595,610],'temp','z500'),
+ P('syn850','Großwetterlage','Temperatur · 850 hPa + Bodendruck','°C',[-30,-20,-15,-10,-5,0,10,20,30],'temp','t850'),
+ P('syn500','Großwetterlage','Temperatur · 500 hPa + Geopotential','°C',[-55,-45,-40,-35,-30,-25,-20,-15,-5],'temp','t500'),
  P('temp2','Temperatur & Feuchte','Temperatur · 2 m','°C',[-20,-10,-5,0,5,10,15,20,30],'temp','temp'),
  P('feels','Temperatur & Feuchte','Gefühlte Temperatur','°C',[-25,-15,-10,-5,0,5,10,15,25],'temp','feels'),
  P('dew','Temperatur & Feuchte','Taupunkt · 2 m','°C',[-15,-10,-5,0,5,10,15,20,25],'temp','dew'),
@@ -2752,13 +2758,13 @@ function synopticCenters(g,threshold){
  return out.sort((a,b)=>b.strength-a.strength);
 }
 function drawSynopticOverlay(ctx,b,p){
- if(!['synoptic','slp','z500','jet','windp250'].includes(p.id)||modelDataMode!=='real'||!modelValidDate())return;
+ if(!['synoptic','syn850','syn500','slp','z500','jet','windp250'].includes(p.id)||modelDataMode!=='real'||!modelValidDate())return;
  const d=realData();if(!d?.nativeMap||!nativeFieldsReady(d,p,mapHour))return;
  const occupied=[],free=(x,y,r)=>x>r&&y>r&&x<b.w-r&&y<b.h-r&&!occupied.some(a=>Math.hypot(x-a[0],y-a[1])<r+a[2]);
  const label=(s,x,y,color,size=12)=>{ctx.font='bold '+size+'px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.lineWidth=3;ctx.strokeStyle='rgba(255,255,255,.94)';ctx.strokeText(s,x,y);ctx.fillStyle=color;ctx.fillText(s,x,y)};
  ctx.save();
- if(['synoptic','slp','z500'].includes(p.id)){
-  const id=p.id==='z500'?'z500':'slp',step=id==='slp'?5:6,grid=synopticGrid(d,id,b),centers=synopticCenters(synopticGrid(d,id,b,true),id==='slp'?1.5:2);
+ if(['synoptic','syn850','syn500','slp','z500'].includes(p.id)){
+  const id=['z500','syn500'].includes(p.id)?'z500':'slp',step=id==='slp'?5:6,grid=synopticGrid(d,id,b),centers=synopticCenters(synopticGrid(d,id,b,true),id==='slp'?1.5:2);
   // Reserve room for pressure centres before placing contour labels.
   const marks=[];for(const c of centers){const [x,y]=xy(c.lon,c.lat,b);if(!free(x,y,42))continue;occupied.push([x,y,42]);marks.push({...c,x,y});if(marks.length>=12)break}
   for(const [v,segments] of synopticContours(grid,step)){
@@ -2791,7 +2797,7 @@ function drawModelCells(ctx,b,p){
  const key=[d.model,d.file,d.generated,d.run,p.id,mapHour,x0,x1,y0,y1,native?.meta.generated||''].join('/');
  let modelRaster=modelRasterCache.get(key);
  if(!modelRaster){modelRaster=document.createElement('canvas');modelRaster.width=w;modelRaster.height=h;const buf=modelRaster.getContext('2d'),img=buf.createImageData(w,h);
- const directId=p.id==='synoptic'?'z500':p.id==='rh'?'rh2':p.id,direct=!native&&p.id!=='jet'&&!diagnosticKeys(p.id)&&!/^rain\d+$/.test(p.id)&&!['rainrate','radiation','conv','strat'].includes(p.id)?d.decoded.get(mapHour+'/'+directId):null;
+ const directId=({synoptic:'z500',syn850:'t850',syn500:'t500',rh:'rh2'})[p.id]||p.id,direct=!native&&p.id!=='jet'&&!diagnosticKeys(p.id)&&!/^rain\d+$/.test(p.id)&&!['rainrate','radiation','conv','strat'].includes(p.id)?d.decoded.get(mapHour+'/'+directId):null;
  const scale=d.scales?.[directId]??g.scale,parameter=['rainrate','radiation'].includes(p.id)?{...p,mapIntervalHours:mapInterval(d,p.id,mapHour)}:p;
  for(let j=0;j<h;j++)for(let i=0;i<w;i++){
   const x=x0+i,y=y1-j,lon=g.west+x*dx,lat=g.south+y*dy,raw=direct?.[y*g.nx+x],v=native?nativeMapTemperatureValue(native,lon,lat):direct?(raw===g.missing?NaN:raw*scale):realModelValue(d,parameter,lon,lat,mapHour);
@@ -2860,7 +2866,7 @@ function renderSample(){
  const [lon,lat]=mapPoint,value=terrainMode==='topo'?terrainHeight(lon,lat):gridSample(p,lon,lat).value;
  const v=p.unit==='°C'?temperatureText(value):value.toLocaleString('de-DE',{maximumFractionDigits:p.id==='visibility'?2:1});
  el('map-sample').innerHTML='<div>'+(terrainMode==='topo'?'Geländehöhe (ca.)':p.label)+'<br><span>'+lat.toFixed(3)+'° N · '+Math.abs(lon).toFixed(3)+'° '+(lon<0?'W':'O')+'</span></div><b>'+(!Number.isFinite(value)?'Keine Daten':terrainMode==='topo'?Math.round(value).toLocaleString('de-DE')+' m':v+' '+p.unit)+'</b>';
- if(p.id==='synoptic'&&terrainMode!=='topo'&&modelDataMode==='real'){const pressure=realModelValue(realData(),{id:'slp'},lon,lat,mapHour);if(Number.isFinite(pressure)&&Number.isFinite(value))el('map-sample').lastElementChild.textContent=v+' dam · '+pressure.toFixed(1)+' hPa';}
+ if(['synoptic','syn850','syn500'].includes(p.id)&&terrainMode!=='topo'&&modelDataMode==='real'){const height=p.id==='syn500',secondary=realModelValue(realData(),{id:height?'z500':'slp'},lon,lat,mapHour);if(Number.isFinite(secondary)&&Number.isFinite(value))el('map-sample').lastElementChild.textContent=v+' '+p.unit+' · '+secondary.toLocaleString('de-DE',{maximumFractionDigits:1})+' '+(height?'dam':'hPa');}
  const district=districtAt(lon,lat),name=mapPointName||(district?district.type+' '+district.name:'');
  if(name){const label=document.createElement('span');label.textContent=name+' · ';el('map-sample').firstElementChild.prepend(label)}
 }
@@ -2898,7 +2904,7 @@ function mapLabels(){
  const n=p.id==='rainTotal'?mapHour:p.interval,available=realData()&&realModelSupported(p,effectiveModel().step,effectiveModel().max);
  el('map-interval').textContent=modelDataMode==='real'&&!available?'Für diesen Parameter sind keine zukünftigen Realdaten verfügbar.':date&&n>0?'Summenzeitraum: '+(modelDataMode==='real'?forecastTimeText(new Date(date.getTime()-n*3600000))+' – '+forecastTimeText(date):timeText(new Date(date.getTime()-n*3600000))+' – '+timeText(date)):(p.id==='rainTotal'?'Summe seit Modellstart: 0 mm':p.id==='rainrate'?(modelDataMode==='real'?'Mittlere Niederschlagsrate · letzte '+mapInterval(realData(),p.id,mapHour)+' h':'Momentane Rate (mm/h)'):'');
  if(terrainMode==='topo')el('map-interval').textContent='';
- else if(mapSource==='model'&&modelDataMode==='real'&&available){const synopticHint={synoptic:'Farbe: 500-hPa-Geopotential (dam) · Linien: Bodendruck (5 hPa) · H/T: Bodenhochs und -tiefs',slp:'Isobaren alle 5 hPa · H/T: lokale Druckzentren',z500:'Isohypsen alle 6 dam · Höhen-H/T: lokale Geopotentialzentren',jet:'Pfeile: Strömungsrichtung · Farben: Geschwindigkeit auf 300 hPa',windp250:'Pfeile: Strömungsrichtung · Farben: Geschwindigkeit auf 250 hPa'}[p.id];if(synopticHint)el('map-interval').textContent=synopticHint;}
+ else if(mapSource==='model'&&modelDataMode==='real'&&available){const synopticHint={syn850:'Farbe: Temperatur auf 850 hPa (etwa 1,5 km) · Isobaren alle 5 hPa · Boden-H/T',syn500:'Farbe: Temperatur auf 500 hPa (etwa 5,5 km) · Isohypsen alle 6 dam · Höhen-H/T',synoptic:'Farbe: 500-hPa-Geopotential (dam) · Linien: Bodendruck (5 hPa) · H/T: Bodenhochs und -tiefs',slp:'Isobaren alle 5 hPa · H/T: lokale Druckzentren',z500:'Isohypsen alle 6 dam · Höhen-H/T: lokale Geopotentialzentren',jet:'Pfeile: Strömungsrichtung · Farben: Geschwindigkeit auf 300 hPa',windp250:'Pfeile: Strömungsrichtung · Farben: Geschwindigkeit auf 250 hPa'}[p.id];if(synopticHint)el('map-interval').textContent=synopticHint;}
  if(mapSource==='live'&&terrainMode!=='topo'){
   el('map-weather-controls').hidden=true;
   document.querySelector('.live-map-note').textContent='Demo · simulierte Beobachtungen und Prognosen, keine aktuellen Messdaten.';
@@ -2947,7 +2953,7 @@ function renderMap(){
 function stopPlay(){if(mapTimer!==null){clearInterval(mapTimer);mapTimer=null}el('map-play').textContent='▶';el('map-play').setAttribute('aria-label',mapSource==='live'?'Radar-Zeitverlauf abspielen':'Vorhersage abspielen')}
 function openMapLayer(id,model,frame=null){stopPlay();mapSource='model';if(terrainMode==='topo'){terrainMode='weather-relief';el('map-terrain-mode').value=terrainMode}if(id&&fields[id])mapLayer=id;else if(model&&model!=='ICON-D2-RUC'&&mapLayer==='hail')mapLayer='temp2';if(model&&mapModels[model]){if(mapModel!==model)selectedMapRun=null;mapModel=model;if(model==='ICON-D2'&&mapRegion!=='Deutschland'){mapRegion='Deutschland';mapZoom=1;mapCenter=null;mapPoint=null;mapPointName=''}}if(frame){if(modelDataMode==='real'){selectedMapRun=null;mapTargetTime=frame.time>Date.now()?frame.time:null}else mapHour=frame.hour;mapPoint=frame.point;mapPointName=location.name;}renderMap();setPage('map')}
 modelSelect.addEventListener('change',()=>{stopPlay();selectedMapRun=null;mapModel=modelSelect.value;renderMap();if(modelDataMode==='real')fetchMapAvailability(mapModel)});
-parameterSelect.addEventListener('change',()=>{stopPlay();mapLayer=parameterSelect.value;if(mapLayer==='synoptic'&&mapRegion!=='Europa'){mapRegion='Europa';selectedMapRun=null;mapZoom=1;mapCenter=null;mapPoint=null;mapPointName=''}renderMap();if(modelDataMode==='real')fetchMapAvailability(mapModel)});
+parameterSelect.addEventListener('change',()=>{stopPlay();mapLayer=parameterSelect.value;if(['synoptic','syn850','syn500'].includes(mapLayer)&&mapRegion!=='Europa'){mapRegion='Europa';selectedMapRun=null;mapZoom=1;mapCenter=null;mapPoint=null;mapPointName=''}renderMap();if(modelDataMode==='real')fetchMapAvailability(mapModel)});
 el('map-run').addEventListener('change',e=>{if(modelDataMode==='real'){selectedMapRun=e.target.value==='auto'?null:Number(e.target.value);realModelRevision++;renderMap()}else{mapRun=+e.target.value;scheduleMap()}});
 document.querySelectorAll('[data-region]').forEach(b=>b.addEventListener('click',()=>{stopPlay();mapRegion=b.dataset.region;selectedMapRun=null;mapZoom=1;mapCenter=null;mapPoint=null;mapPointName='';renderMap();if(mapSource==='model'&&modelDataMode==='real')fetchMapAvailability(mapModel)}));
 document.querySelectorAll('[data-map-source]').forEach(b=>b.addEventListener('click',()=>setMapSource(b.dataset.mapSource)));
