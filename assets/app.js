@@ -1197,12 +1197,12 @@ infoPages.sources[1]=infoPages.sources[1]
 function openInfo(key){const page=infoPages[key];if(!page)return;el('info-title').textContent=page[0];el('info-content').innerHTML=page[1];setPage('info')}
 
 // Only verified, explicitly identified data can enter the real model mode.
-const realModelFiles={'ICON-D2':'icon-d2','ICON-EU':'icon-eu','IFS':'ifs','GFS':'gfs','AIFS':'aifs','AIFS-ENS Control':'aifs-ens-control'};
+const realModelFiles={'ICON-D2':'icon-d2','ICON-D2-RUC':'icon-d2-ruc','ICON-EU':'icon-eu','IFS':'ifs','GFS':'gfs','AIFS':'aifs','AIFS-ENS Control':'aifs-ens-control'};
 const coreForecastModels=['ICON-D2','ICON-EU','IFS','GFS'];
 const forecastPriority=[...coreForecastModels,'AIFS','AIFS-ENS Control'];
 const modelProvider=model=>model==='IFS'||model.startsWith('AIFS')?'ECMWF':model==='GFS'?'NOAA':'DWD';
-const modelMax=model=>model==='ICON-D2'?48:model==='ICON-EU'?120:model.startsWith('AIFS')?360:240;
-const modelAgeLimit=model=>modelProvider(model)==='DWD'?18:36;
+const modelMax=model=>model==='ICON-D2'?48:model==='ICON-D2-RUC'?27:model==='ICON-EU'?120:model.startsWith('AIFS')?360:240;
+const modelAgeLimit=model=>model==='ICON-D2-RUC'?6:modelProvider(model)==='DWD'?18:36;
 let modelDataMode='demo',realModelRevision=0;
 const realModelCache=new Map(),realModelRequests=new Map(),realDecoded=new Map(),realModelErrors=new Map();
 const hourlyModelCache=new Map(),hourlyModelRequests=new Map();
@@ -1299,10 +1299,10 @@ function validateNativeMapManifest(m,model,file){
  if(m?.schema!==2||m.model!==model||!Number.isFinite(Date.parse(m.run))||!Number.isFinite(Date.parse(m.generated))||!g||![g.west,g.south,g.step].every(Number.isFinite)||g.step<=0||g.scale!==.1||g.missing!==-32768||![g.nx,g.ny].every(n=>Number.isInteger(n)&&n>1)||g.nx*g.ny>2000000)throw Error('Ungültiges Originalraster');
  const fields=m.frames,hs=m.hours;
  if(!Array.isArray(hs)||hs.length<2||hs[0]!==0||!hs.every((h,i)=>Number.isInteger(h)&&(!i||h>hs[i-1])))throw Error('Ungültige Modellzeiten');
- const coreHours=m.coreHours??hs;if(!Array.isArray(coreHours)||!coreHours.includes(0)||coreHours.some(h=>!hs.includes(h)))throw Error('Ungültige Grundfeldzeiten');
+ const hailProduct=model==='ICON-D2-RUC'&&m.product==='hail'&&m.gridMapping==='nearest-source-cell',coreHours=m.coreHours??hs;if(model==='ICON-D2-RUC'&&!hailProduct||!Array.isArray(coreHours)||(!hailProduct&&!coreHours.includes(0))||(hailProduct&&coreHours.length!==0)||coreHours.some(h=>!hs.includes(h)))throw Error('Ungültige Grundfeldzeiten');
  const fs={};
  for(const h of hs){
-  if(!Array.isArray(fields?.[h])||!fields[h].length||(coreHours.includes(h)&&!['temp2','dew','wind','slp','cloud','rainTotal'].every(k=>fields[h].includes(k))))throw Error('Unvollständiger Originalmodelllauf');
+  if(!Array.isArray(fields?.[h])||!fields[h].length||(hailProduct&&(fields[h].length!==1||fields[h][0]!=='hail'))||(coreHours.includes(h)&&!['temp2','dew','wind','slp','cloud','rainTotal'].every(k=>fields[h].includes(k))))throw Error('Unvollständiger Originalmodelllauf');
   fs[h]={};for(const k of fields[h]){
    if(typeof k!=='string'||!/^\w+$/.test(k)||!Number.isFinite(m.scales?.[k])||m.scales[k]<=0)throw Error('Ungültiges Modellfeld');
    fs[h][k]=true;
@@ -1523,6 +1523,7 @@ async function fetchRealModel(model,force=false,short=false){
  realModelRequests.set(key,task);
  try{await task}finally{realModelRequests.delete(key);if(activePage==='map'&&mapSource==='model'&&mapModel===model&&modelDataMode==='real')renderMap();if(changed&&typeof weatherRealEnabled!=='undefined'&&weatherRealEnabled){if(activePage==='weather')renderWeather();else if(activePage==='warnings')renderLocalWarnings();else if(activePage==='expert')renderRealExpert();else if(activePage==='map'&&mapSource==='live')scheduleMap()}}
 }
+function profileFieldNote(d,h,id){return Array.isArray(d?.derivedFields?.[h])&&d.derivedFields[h].some(k=>(diagnosticKeys(id)||[id]).includes(k))}
 function modelStatus(){
  if(modelDataMode!=='real')return {label:'Testdaten · keine Vorhersage',detail:'Modellkarte · synthetische Testfelder'};
  const d=realData();
@@ -1530,7 +1531,7 @@ function modelStatus(){
   if(mapSource==='model'&&!Number.isFinite(mapHour))return {label:'Keine zukünftigen Daten',detail:'Für diesen Parameter gibt es im Modelllauf keine verfügbaren zukünftigen Zeitpunkte.'};
   const provider=modelProvider(d.model),old=Date.now()-Date.parse(d.run)>modelAgeLimit(d.model)*3600000;
   const count=new Set(Object.values(d.frames).flatMap(Object.keys)).size;
-  if(d.nativeMap){const ready=nativeFieldsReady(d,fields[mapLayer],mapHour),available=realModelSupported(fields[mapLayer],d.hours[1],d.hours.at(-1)),failed=available&&mapFieldRequirements(d,fields[mapLayer],mapHour).some(([h,k])=>nativeFieldFailures.has(d.file+'/'+d.generated+'/'+h+'/'+k));return {label:ready?'Originalraster':failed?'Datenabruf wird erneut versucht':available?'Originaldaten werden geladen':'Keine Originaldaten',detail:provider+' · '+d.grid.step.toLocaleString('de-DE',{maximumFractionDigits:5})+'° Originalraster · keine räumliche Glättung'+(old?' · nicht aktuell':'')}}
+  if(d.nativeMap){const ready=nativeFieldsReady(d,fields[mapLayer],mapHour),available=realModelSupported(fields[mapLayer],d.hours[1],d.hours.at(-1)),failed=available&&mapFieldRequirements(d,fields[mapLayer],mapHour).some(([h,k])=>nativeFieldFailures.has(d.file+'/'+d.generated+'/'+h+'/'+k));return {label:ready?(d.gridMapping==='nearest-source-cell'?'RUC · Rasterabbildung':'Originalraster'):failed?'Datenabruf wird erneut versucht':available?'Originaldaten werden geladen':'Keine Originaldaten',detail:provider+' · '+(d.gridMapping==='nearest-source-cell'?'ICON-D2-RUC · nächste Originalzelle · ':'')+d.grid.step.toLocaleString('de-DE',{maximumFractionDigits:5})+(d.gridMapping==='nearest-source-cell'?'° Darstellungsraster · keine räumliche Glättung':'° Originalraster · keine räumliche Glättung')+(profileFieldNote(d,mapHour,mapLayer)?' · Druckflächenprofil · Näherung':'')+(old?' · nicht aktuell':'')}}
   if(mapLayer==='temp2'){const n=matchingNativeMap();return {label:n?'Originalraster':'Originaltemperatur ausstehend',detail:provider+' · '+(n?n.meta.grid.dx.toLocaleString('de-DE',{maximumFractionDigits:5})+'° Originalraster · ungeglättete Modellzellen':'Passender Originalraster-Modelllauf wird geladen · keine Ersatzwerte')+(old?' · nicht aktuell':'')}}
   return {label:'Originaldaten ausstehend',detail:'Quelle: '+(provider==='ECMWF'?'ECMWF '+d.model+' · CC BY 4.0 · aufbereitet':provider==='NOAA'?'NOAA / NCEP GFS':'Deutscher Wetterdienst')+' · Originalraster wird importiert · keine gröberen Ersatzkarten'+(old?' · nicht aktuell':'')};
  }
@@ -1557,7 +1558,7 @@ function initModelData(){
 // measurements stay missing; a model value is never labelled a measurement.
 let weatherRealEnabled=false,stationData=null,stationRequest=null;
 const dataRoot='https://raw.githubusercontent.com/colinheinz07-spec/Wetter-App/main/data/';
-const localFormat=(v,digits=1)=>Number.isFinite(v)?v.toLocaleString('de-DE',{maximumFractionDigits:digits}):'—';
+const localFormat=(v,digits=1)=>Number.isFinite(v)?(Math.abs(v)<.5*10**(-digits)?0:v).toLocaleString('de-DE',{maximumFractionDigits:digits}):'—';
 const temperatureText=v=>Number.isFinite(v)?String(Math.sign(v)*Math.round(Math.abs(v))||0):'—';
 // Applies meteorological windchill / heat-index equations only in their valid ranges.
 // Outside those ranges do not invent a "feels like" temperature.
@@ -1606,7 +1607,7 @@ const pointCore=['temp2','dew','wind','slp','cloud','rainTotal'];
 const pointStoreKey='wetterapp-point-v3';
 function validatePointManifest(m,model){
  const g=m?.grid,hs=m?.hours,s=m?.tileSize;if(m?.schema!==3||m.model!==model||!Number.isFinite(Date.parse(m.run))||!Number.isFinite(Date.parse(m.generated))||!g||![g.west,g.south,g.step].every(Number.isFinite)||g.step<=0||g.missing!==-32768||g.scale!==.1||![g.nx,g.ny,s].every(Number.isInteger)||g.nx<2||g.ny<2||g.nx*g.ny>2000000||s<8||s>100||!Array.isArray(hs)||hs.length<2||!hs.every((h,i)=>Number.isInteger(h)&&h===i*hs[1])||hs[1]<=0)throw Error('Ungültiges Ortsraster');
- for(const h of hs){const keys=m.frames?.[h];if(!Array.isArray(keys)||!pointCore.every(k=>keys.includes(k))||keys.some(k=>typeof k!=='string'||!/^\w+$/.test(k)||!(m.scales?.[k]>0)))throw Error('Unvollständige Ortsprognose')}
+ for(const h of hs){const keys=m.frames?.[h];if(!Array.isArray(keys)||!(model==='ICON-D2-RUC'?m.product==='hail'&&m.gridMapping==='nearest-source-cell'&&keys.length===1&&keys[0]==='hail':pointCore.every(k=>keys.includes(k)))||keys.some(k=>typeof k!=='string'||!/^\w+$/.test(k)||!(m.scales?.[k]>0)))throw Error('Unvollständige Ortsprognose')}
  return m;
 }
 function pointCell(m,p){const g=m.grid,x=Math.round((p[0]-g.west)/g.step),y=Math.round((p[1]-g.south)/g.step),s=m.tileSize;if(x<0||y<0||x>=g.nx||y>=g.ny)return null;const tx=Math.floor(x/s),ty=Math.floor(y/s),nx=Math.min(s,g.nx-tx*s),ny=Math.min(s,g.ny-ty*s);return {key:tx+'-'+ty,n:(y%s)*nx+x%s,nx,ny,x,y}}
@@ -1816,6 +1817,7 @@ function derivedExpertSample(frame,id){
  let cache=profileCache.get(frame.d);if(!cache){cache=new Map();profileCache.set(frame.d,cache)}const key=frame.hour+'/'+pointKey(frame.point);if(!cache.has(key)){let terrain=NaN;try{terrain=warningElevation(frame.point)}catch{}cache.set(key,calculateExpertProfile(k=>frameVal(frame,k),terrain));if(cache.size>40)cache.delete(cache.keys().next().value)}const result=cache.get(key);return {value:result[id]??NaN,absent:!!result[id+'Absent']};
 }
 function currentParameterAt(id,point,now,preferred,interval=0){
+ if(id==='hail'){for(const d of pointRuns('ICON-D2-RUC',point)){if(now-Date.parse(d.run)>6*HOUR_MS)continue;const h=d.hours.filter(h=>mapLeadTime(d,h)<=now).at(-1),time=mapLeadTime(d,h);if(!Number.isFinite(time)||now-time>2*HOUR_MS)continue;const frame={d,hour:h,time,point},value=frameVal(frame,id);if(Number.isFinite(value))return {frame,value};}return {frame:null,value:NaN};}
  const native=pointProfile&&pointProfile.point.every((x,i)=>x===point?.[i])&&pointProfile.time<=now&&now-pointProfile.time<=6*HOUR_MS&&now-Date.parse(pointProfile.d.run)<=modelAgeLimit(pointProfile.d.model)*HOUR_MS?pointProfile:null;
  // Preserve the original time and source of every individual value.
  const frames=[native,preferred,...forecastPriority.map(model=>currentGridFrame(point,now,[model]))].filter(Boolean);
@@ -1826,7 +1828,7 @@ function currentParameterAt(id,point,now,preferred,interval=0){
  for(const frame of frames){if(frame.time>now)continue;const derived=derivedExpertSample(frame,id);if(derived&&(Number.isFinite(derived.value)||derived.absent))return {frame,...derived,derived:true};}
  return {frame:null,value:NaN};
 }
-function currentSource(frame){return frame?frame.d.model+' · '+localTime(frame.time,{hour:'2-digit',minute:'2-digit'})+' · '+(frame.d.pointNative||frame.d.nativeMap?'Originalraster':frame.d.grid.step.toLocaleString('de-DE')+'°-Raster'):'Nicht verfügbar'}
+function currentSource(frame){return frame?frame.d.model+' · '+localTime(frame.time,{hour:'2-digit',minute:'2-digit'})+' · '+(frame.d.gridMapping==='nearest-source-cell'?'2,2-km-Modellzelle · Rasterabbildung':frame.d.pointNative||frame.d.nativeMap?'Originalraster':frame.d.grid.step.toLocaleString('de-DE')+'°-Raster'):'Nicht verfügbar'}
 async function fetchPointProfile(point,preferred){
  if(!point)return;const model=preferred?.d.model||'ICON-D2',key=model+'/'+point.join('/');
  if(pointProfileTask||key===pointProfileKey&&Date.now()-pointProfileCheck<120000)return;
@@ -2297,7 +2299,7 @@ function initWeatherData(){
  setInterval(()=>{if(!document.hidden){update();if(activePage==='weather')renderWeather()}},5*60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden){update();if(activePage==='weather')renderWeather();else if(activePage==='warnings')renderLocalWarnings();else if(activePage==='expert')renderRealExpert()}});window.addEventListener('online',()=>{update()});
 }
 function renderRealExpert(){
- const point=homeLocationPoint(location),now=Date.now(),f=currentGridFrame(point,now),opened=[...el('expert-data').querySelectorAll('details')].map(d=>d.open);fetchPointProfile(point,f);
+ const point=homeLocationPoint(location),now=Date.now(),f=currentGridFrame(point,now),opened=[...el('expert-data').querySelectorAll('details')].map(d=>d.open);fetchPointProfile(point,f);fetchLocationTile(point,'ICON-D2-RUC',nativeMapRoot('icon-d2-ruc'));
  el('expert-data').innerHTML='<p class="map-profile-note">Ortsbezogene Modellprofile · Originalraster, soweit vorhanden. Zeitpunkt und Modell stehen an jedem Wert. — = Eingangsdaten fehlen.</p>'+realExpertGroups(point,now,f).map(expertParameterGroup).join('');
  el('expert-data').querySelectorAll('details').forEach((d,i)=>{if(i<opened.length)d.open=opened[i]});
  document.querySelectorAll('[data-map-layer]').forEach(b=>b.onclick=()=>{const id=b.dataset.mapLayer,sample=currentParameterAt(id,point,now,f,fields[id]?.interval||0);openMapLayer(id,sample.frame?.d.model||f?.d.model,sample.frame)});
@@ -2308,15 +2310,15 @@ function updateExpertModelAvailability(){
  for(const node of document.querySelectorAll('[data-expert-availability]')){
   const model=node.dataset.expertAvailability,now=Date.now(),d=mapModelRuns(model,true).find(x=>x.nativeMap&&Date.parse(x.run)<=now&&mapLeadTime(x,x.hours.at(-1))>now);
   const loading=mapFiles(model).some(f=>nativeMapLoading.has(f)||nativeMapLoading.has(f+'-de'));
-  node.textContent=d?'Lauf '+timeText(new Date(d.run))+' · '+(now-Date.parse(d.run)>modelAgeLimit(model)*HOUR_MS?'älterer Lauf':'Originalraster verfügbar'):loading?'Verfügbarkeit wird geprüft …':expertAvailabilityCheck?'Kein Kartenlauf verfügbar':'Noch nicht geprüft';
+  node.textContent=d?'Lauf '+timeText(new Date(d.run))+' · '+(now-Date.parse(d.run)>modelAgeLimit(model)*HOUR_MS?'älterer Lauf':(model==='ICON-D2-RUC'?'Hagelprodukt verfügbar':'Originalraster verfügbar')):loading?'Verfügbarkeit wird geprüft …':expertAvailabilityCheck?'Kein Kartenlauf verfügbar':'Noch nicht geprüft';
  }
 }
 function checkExpertModels(){
  if(Date.now()-expertAvailabilityCheck<120000)return;expertAvailabilityCheck=Date.now();
- for(const model of forecastPriority)fetchNativeMapModel(model,false,true);
+ for(const model of [...forecastPriority,'ICON-D2-RUC'])fetchNativeMapModel(model,false,true);
  updateExpertModelAvailability();
 }
-function realExpertGroups(point,now,f){return expertGroups.map(([title,icon,items])=>[title,icon,items.map(([name,_value,unit,desc])=>{const id=expertMapLinks[name],sample=id?currentParameterAt(id,point,now,f,fields[id]?.interval||0):{value:NaN};const method=sample.derived?(id==='lcl'?'LCL aus T/Td und Profil · Näherung':['thetae','lapse','lapse7'].includes(id)?'Berechnet aus Druckflächen':['srh01','srh03','stormrel','ehi03'].includes(id)?'Bunkers-Rechtsläufer · 0–6-km-Profil · Näherung': ['lfc','el','cape','cin','li'].includes(id)?'Bodenluftpaket · Druckflächenprofil · Näherung':'Druckflächenprofil · vertikale Näherung'+(Number.isFinite(frameVal(sample.frame,'orog'))?' · Modellgelände':' · Geländehöhe')):expertDerivedDescriptions[id];return [name,sample.absent?'Keiner':displayValue(sample.value,unit),sample.absent?'':unit,sample.frame?currentSource(sample.frame)+(method?' · '+method:''):expertDerivedDescriptions[id]||desc||'Eingangsdaten fehlen',!sample.derived&&!!fields[id]];})]);}
+function realExpertGroups(point,now,f){return expertGroups.map(([title,icon,items])=>[title,icon,items.map(([name,_value,unit,desc])=>{const id=expertMapLinks[name],sample=id?currentParameterAt(id,point,now,f,fields[id]?.interval||0):{value:NaN};const method=sample.derived?(id==='lcl'?'LCL aus T/Td und Profil · Näherung':['thetae','lapse','lapse7'].includes(id)?'Berechnet aus Druckflächen':['srh01','srh03','stormrel','ehi03'].includes(id)?'Bunkers-Rechtsläufer · 0–6-km-Profil · Näherung': ['lfc','el','cape','cin','li'].includes(id)?'Bodenluftpaket · Druckflächenprofil · Näherung':'Druckflächenprofil · vertikale Näherung'+(Number.isFinite(frameVal(sample.frame,'orog'))?' · Modellgelände':' · Geländehöhe')):(profileFieldNote(sample.frame?.d,sample.frame?.hour,id)?(expertDerivedDescriptions[id]||'Druckflächenprofil')+' · Näherung':expertDerivedDescriptions[id]);return [name,sample.absent?'Keiner':(['scp','stp','ship','ehi03'].includes(id)?localFormat(sample.value,2):displayValue(sample.value,unit)),sample.absent?'':unit,sample.frame?currentSource(sample.frame)+(method?' · '+method:''):expertDerivedDescriptions[id]||desc||'Eingangsdaten fehlen',!sample.derived&&!!fields[id]];})]);}
 
 // Real observation products and model forecasts, with independent clocks.
 let realLiveEnabled=false,radarRevision=0,directRadarTime=NaN,radarClockRequest=null;
@@ -2504,6 +2506,7 @@ function renderRealHomeMaps(point){
 const mapBoundaries = EXTRA_GEO.countries;
 const mapModels = {
  'ICON-D2': {max:48,step:1,bias:0,phase:0,grid:.035},
+ 'ICON-D2-RUC': {max:27,step:1,bias:0,phase:0,grid:.02},
  'ICON-EU': {max:120,step:3,bias:.35,phase:.8,grid:.09},
  'IFS': {max:168,step:3,bias:-.3,phase:1.5,grid:.12},
  'GFS': {max:240,step:6,bias:.55,phase:2.1,grid:.25},
@@ -2591,6 +2594,7 @@ for(const lev of [1000,975,950,925,900,850,800,700,600,500,400,300,250,200,150,1
  mapParameters.push(P('windp'+lev,'Höhenwetter · Wind','Wind · '+label,'m/s',[0,5,10,15,20,30,40,60,80],'wind','jet'),P('u'+lev,'Höhenwetter · Wind','Westwindkomponente U · '+label,'m/s',[-50,-30,-20,-10,0,10,20,30,50],'negative','jet'),P('v'+lev,'Höhenwetter · Wind','Südwindkomponente V · '+label,'m/s',[-50,-30,-20,-10,0,10,20,30,50],'negative','jet'),P('winddirp'+lev,'Höhenwetter · Wind','Windrichtung · '+label,'°',[0,45,90,135,180,225,270,315,360],'index','unavailable'),P('q'+lev,'Höhenwetter · Feuchte','Spezifische Feuchte · '+label,'g/kg',[0,.5,1,2,3,5,8,12,18],'moisture','unavailable'));
 }
 mapParameters.push(P('s850500','Scherung & Helizität','Vektorscherung · 850–500 hPa','m/s',[0,5,10,15,20,25,30,40,50],'index','unavailable'),P('lclApprox','Vertikalprofil','LCL · Näherung aus T/Td','m AGL',[0,250,500,750,1000,1500,2000,2500,3500],'index','unavailable'),P('ehi03','Gefahrenindizes','EHI · ML-CAPE / SRH 0–3 km','',[0,.25,.5,1,2,3,4,5,8],'index','unavailable'),P('dcapeSpeed','Gefahrenindizes','Ideale Abwindgeschwindigkeit aus DCAPE','km/h',[0,20,40,60,80,100,120,150,200],'wind','unavailable'));
+mapParameters.push(P('scp','Gefahrenindizes','Supercell Composite (SCP · effektiv)','',[0,.25,.5,1,2,4,8,12,20],'index','unavailable'),P('stp','Gefahrenindizes','Significant Tornado (STP · effektiv)','',[0,.25,.5,1,2,3,5,8,12],'index','unavailable'),P('ship','Gefahrenindizes','Significant Hail (SHIP)','',[0,.25,.5,1,1.5,2,3,4,6],'index','unavailable'),P('hail','Gefahrenindizes','Potenzielle maximale Hagelgröße · ICON-D2-RUC','cm',[0,.5,1,2,3,4,5,7.5,10],'index','unavailable'),P('downburst','Gefahrenindizes','Wet Microburst Severity Index (WMSI)','',[0,10,25,50,75,100,150,200,300],'index','unavailable'));
 mapParameters.push(
  P('snowWater','Niederschlag & Schnee','Schneewasseräquivalent · SWE','mm',[0,1,2,5,10,20,40,80,150],'snow','snowWater'),
  P('snowDensity','Niederschlag & Schnee','Schneedichte','kg/m³',[50,100,150,200,250,350,450,600,900],'index','snowDensity'),
@@ -2605,7 +2609,7 @@ const mapSnapshot=document.createElement('canvas');
 let snapshotBounds=null,snapshotKey='',mapGesture=false,gestureTimer=null;
 const modelSelect=el('map-model'),parameterSelect=el('map-parameter');
 const fields=Object.fromEntries(mapParameters.map(p=>[p.id,p]));
-const mapOptions=()=>Object.keys(mapModels).filter(m=>mapRegion==='Deutschland'||m!=='ICON-D2');
+const mapOptions=()=>mapLayer==='hail'&&mapSource==='model'?['ICON-D2-RUC']:Object.keys(mapModels).filter(m=>m!=='ICON-D2-RUC'&&(mapRegion==='Deutschland'||m!=='ICON-D2'));
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 function baseBounds(){
  const b=mapRegion==='Deutschland'?{west:3.8,east:16.7,south:46.3,north:55.8,w:640,h:760}:{west:-25,east:42,south:34,north:71,w:740,h:680};
@@ -2843,12 +2847,13 @@ function endMapGesture(){
  if(mapGesture){mapGesture=false;scheduleMap()}
 }
 function renderMap(){
+ if(mapSource==='model'&&mapLayer==='hail'){if(mapModel!=='ICON-D2-RUC')selectedMapRun=null;mapModel='ICON-D2-RUC';if(mapRegion!=='Deutschland'){mapRegion='Deutschland';mapZoom=1;mapCenter=null;mapPoint=null;mapPointName=''}}
  const list=mapOptions();if(!list.includes(mapModel))mapModel=list[0];const model=effectiveModel();
  if(realForecastMap())syncModelTimeline();
  modelSelect.innerHTML=list.map(s=>'<option value="'+s+'" '+(s===mapModel?'selected':'')+'>'+s+'</option>').join('');
  const data=realData(),available=mapParameters,groups=[...new Set(available.map(p=>p.group))];
- parameterSelect.disabled=modelDataMode==='real'&&!data;
- parameterSelect.innerHTML=groups.map(g=>'<optgroup label="'+g+'">'+available.filter(p=>p.group===g).map(p=>'<option value="'+p.id+'" '+(p.id===mapLayer?'selected':'')+'>'+p.label+(data&&!realModelSupported(p,model.step,model.max,true)?' · nicht verfügbar':'')+'</option>').join('')+'</optgroup>').join('');
+ parameterSelect.disabled=modelDataMode==='real'&&!data&&mapModel!=='ICON-D2-RUC';
+ parameterSelect.innerHTML=groups.map(g=>'<optgroup label="'+g+'">'+available.filter(p=>p.group===g).map(p=>'<option value="'+p.id+'" '+(p.id===mapLayer?'selected':'')+'>'+p.label+(data&&p.id!=='hail'&&!realModelSupported(p,model.step,model.max,true)?' · nicht verfügbar':'')+'</option>').join('')+'</optgroup>').join('');
  const run=el('map-run'),runs=modelDataMode==='real'?futureMapRuns(mapModel).filter((d,i,a)=>a.findIndex(r=>r.run===d.run)===i):mapModelRuns(mapModel);if(selectedMapRun!==null&&!runs.some(d=>Date.parse(d.run)===selectedMapRun))selectedMapRun=null;run.disabled=modelDataMode==='real'&&runs.length<2;el('map-run-label').textContent=modelDataMode==='real'?'Modelllauf ('+modelProvider(mapModel)+', UTC)':'Modelllauf (Demo)';
  run.innerHTML=modelDataMode==='real'?'<option value="auto">'+(runs.length?'Aktuell · '+timeText(new Date((realData()||runs[0]).run)):'Modell wird geladen …')+'</option>'+runs.map(d=>'<option value="'+Date.parse(d.run)+'" '+(Date.parse(d.run)===selectedMapRun?'selected':'')+'>'+timeText(new Date(d.run))+' (+'+d.hours.at(-1)+' h)</option>').join(''):[0,6,12].map(h=>'<option value="'+h+'" '+(mapRun===h?'selected':'')+'>15.11. · '+String(h).padStart(2,'0')+' UTC</option>').join('');
  el('map-data-mode').value=modelDataMode;el('map-data-refresh').hidden=modelDataMode!=='real';
@@ -2858,7 +2863,7 @@ function renderMap(){
  refreshMap();
 }
 function stopPlay(){if(mapTimer!==null){clearInterval(mapTimer);mapTimer=null}el('map-play').textContent='▶';el('map-play').setAttribute('aria-label',mapSource==='live'?'Radar-Zeitverlauf abspielen':'Vorhersage abspielen')}
-function openMapLayer(id,model,frame=null){stopPlay();mapSource='model';if(terrainMode==='topo'){terrainMode='weather-relief';el('map-terrain-mode').value=terrainMode}if(id&&fields[id])mapLayer=id;if(model&&mapModels[model]){if(mapModel!==model)selectedMapRun=null;mapModel=model;if(model==='ICON-D2'&&mapRegion!=='Deutschland'){mapRegion='Deutschland';mapZoom=1;mapCenter=null;mapPoint=null;mapPointName=''}}if(frame){if(modelDataMode==='real'){selectedMapRun=null;mapTargetTime=frame.time>Date.now()?frame.time:null}else mapHour=frame.hour;mapPoint=frame.point;mapPointName=location.name;}renderMap();setPage('map')}
+function openMapLayer(id,model,frame=null){stopPlay();mapSource='model';if(terrainMode==='topo'){terrainMode='weather-relief';el('map-terrain-mode').value=terrainMode}if(id&&fields[id])mapLayer=id;else if(model&&model!=='ICON-D2-RUC'&&mapLayer==='hail')mapLayer='temp2';if(model&&mapModels[model]){if(mapModel!==model)selectedMapRun=null;mapModel=model;if(model==='ICON-D2'&&mapRegion!=='Deutschland'){mapRegion='Deutschland';mapZoom=1;mapCenter=null;mapPoint=null;mapPointName=''}}if(frame){if(modelDataMode==='real'){selectedMapRun=null;mapTargetTime=frame.time>Date.now()?frame.time:null}else mapHour=frame.hour;mapPoint=frame.point;mapPointName=location.name;}renderMap();setPage('map')}
 modelSelect.addEventListener('change',()=>{stopPlay();selectedMapRun=null;mapModel=modelSelect.value;renderMap();if(modelDataMode==='real')fetchMapAvailability(mapModel)});
 parameterSelect.addEventListener('change',()=>{stopPlay();mapLayer=parameterSelect.value;renderMap();if(modelDataMode==='real')fetchMapAvailability(mapModel)});
 el('map-run').addEventListener('change',e=>{if(modelDataMode==='real'){selectedMapRun=e.target.value==='auto'?null:Number(e.target.value);realModelRevision++;renderMap()}else{mapRun=+e.target.value;scheduleMap()}});
@@ -2949,8 +2954,8 @@ document.addEventListener('pointerdown',e=>{if(!el('map-search').contains(e.targ
 
 el('expert-open-map').addEventListener('click',()=>openMapLayer('ki'));
 const expertMapLinks={'SBCAPE':'cape','MLCAPE':'mlcape','MUCAPE':'mucape','SBCIN':'cin','MLCIN':'mlcin','K-Index':'ki','Lifted Index':'li','Total Totals (TT)':'tt','DCAPE':'dcape','Scherung 0–1 km':'s01','Scherung 0–3 km':'s03','Scherung 0–6 km':'s06','SRH 0–1 km':'srh01','SRH 0–3 km':'srh03','Jet (300 hPa)':'jet','T 850 hPa':'t850','T 700 hPa':'t700','T 500 hPa':'t500','Theta-e 850 hPa':'thetae','LCL':'lcl','LFC':'lfc','EL':'el','Lapse Rate 850–500 hPa':'lapse','Lapse Rate 700–500 hPa':'lapse7','Geopotential 500 hPa':'z500','PWAT':'pwat','Rel. Feuchte 850 hPa':'rh850','Rel. Feuchte 700 hPa':'rh700','Rel. Feuchte 500 hPa':'rh500','QPF 24 h':'rain24','Konvektive QPF':'conv','Stratiforme QPF':'strat'};
-Object.assign(expertMapLinks,{'MUCIN':'mucin','Nullgradgrenze':'freezing','Scherung 850–500 hPa':'s850500','LCL (Näherung)':'lclApprox','Energy Helicity Index (EHI 0–3 km)':'ehi03','Ideale Abwindgeschwindigkeit':'dcapeSpeed','Storm-relative Wind':'stormrel'});
-const expertDerivedDescriptions={s850500:'Vektordifferenz der Druckflächen, nicht 0–6 km AGL',lclApprox:'Näherung 125 × (T − Td), keine exakte Paketberechnung',ehi03:'MLCAPE × SRH 0–3 km / 160000; kein Tornadonachweis',dcapeSpeed:'Ideale Energieumwandlung, keine Böenprognose',rain24:'24 h bis zur Modellgültigkeitszeit (rückblickend)',conv:'Letzte 24 Modellstunden',strat:'Letzte 24 Modellstunden'};
+Object.assign(expertMapLinks,{'Supercell Composite (SCP)':'scp','Significant Tornado (STP)':'stp','Significant Hail (SHIP)':'ship','Potenzielle Hagelgröße':'hail','Downburst / Microburst':'downburst','MUCIN':'mucin','Nullgradgrenze':'freezing','Scherung 850–500 hPa':'s850500','LCL (Näherung)':'lclApprox','Energy Helicity Index (EHI 0–3 km)':'ehi03','Ideale Abwindgeschwindigkeit':'dcapeSpeed','Storm-relative Wind':'stormrel'});
+const expertDerivedDescriptions={scp:'MUCAPE × effektive SRH × effektive Scherung · Rechtsläufer',stp:'MLCAPE, MLCIN, MLLCL, effektive SRH/Scherung',ship:'MU-Luftpaket, Temperaturprofil und 0–6-km-Scherung · NOAA NSHARP',downburst:'WMSI · feuchte Downburst-Umgebung, keine Böengeschwindigkeit',dcape:'Gesättigtes Abwindpaket · Druckflächenprofil',hail:'DWD DEMAX_HAIL_S · modellierter maximaler Durchmesser',s850500:'Vektordifferenz der Druckflächen, nicht 0–6 km AGL',lclApprox:'Näherung 125 × (T − Td), keine exakte Paketberechnung',ehi03:'MLCAPE × SRH 0–3 km / 160000; kein Tornadonachweis',dcapeSpeed:'Ideale Energieumwandlung, keine Böenprognose',rain24:'24 h bis zur Modellgültigkeitszeit (rückblickend)',conv:'Letzte 24 Modellstunden',strat:'Letzte 24 Modellstunden'};
 const parameterExplanations={
  cape:'SBCAPE (Surface-Based CAPE) beschreibt die Auftriebsenergie eines vom Boden aufsteigenden Luftpakets. Je höher der Wert, desto kräftiger können sich Schauer und Gewitter entwickeln. Auslösung, Feuchte und Windscherung müssen ebenfalls betrachtet werden.',
  mlcape:'MLCAPE ist die Auftriebsenergie eines über die untere Luftschicht gemittelten Luftpakets. Sie beschreibt das Potenzial für kräftige Aufwinde, auch wenn die bodennahen Bedingungen schwanken. Hohe Werte allein garantieren kein Gewitter.',
@@ -2984,11 +2989,11 @@ const parameterExplanations={
  conv:'Vom Modell als konvektiv berechneter Niederschlag über die letzten 24 Stunden bis zur Kartenzeit, beispielsweise aus Schauern oder Gewittern.',
  strat:'Vom Modell als nicht-konvektiv berechneter Niederschlag über die letzten 24 Stunden bis zur Kartenzeit, häufig großflächiger Regen. Die Aufteilung ist modellabhängig.',
  ehi03:'Energy Helicity Index kombiniert MLCAPE mit der storm-relativen Helizität von 0 bis 3 km. Höhere positive Werte können rotierende Gewitter begünstigen, sind jedoch kein Tornadonachweis.',
- 'Supercell Composite (SCP)':'Kombinationsindex aus Instabilität, effektiver Windscherung und Helizität zur Einschätzung eines superzellenfreundlichen Umfelds. Keine konkrete Gewitterprognose.',
- 'Significant Tornado (STP)':'Kombinationsindex für ein potenziell tornadogünstiges Umfeld. Er berücksichtigt unter anderem Instabilität, Scherung, Helizität, Wolkenbasis und Hemmung. Kein direkter Tornadonachweis.',
- 'Significant Hail (SHIP)':'Kombinationsindex zur Einschätzung eines Umfelds für großen Hagel. Er benötigt unter anderem Instabilität, Temperaturprofil, Feuchte und Windscherung.',
- 'Potenzielle Hagelgröße':'Geschätzter möglicher Hagelkorndurchmesser. Dafür werden ein geeignetes vertikales Temperatur-, Aufwind- und Feuchteprofil sowie eine validierte Methode benötigt. CAPE allein reicht nicht aus.',
- 'Downburst / Microburst':'Kräftiger, lokal begrenzter Abwind, der sich beim Auftreffen auf den Boden horizontal ausbreitet. Microbursts sind besonders kleinräumig. DCAPE ist ein Hinweis, keine sichere Windprognose.',
+ scp:'Supercell Composite Parameter (SCP), effektive Variante: MUCAPE, effektive storm-relative Helizität und effektive Scherung. Aus der vertikalen Modellschichtung näherungsweise berechnet; kein Gewitternachweis.',
+ stp:'Significant Tornado Parameter (STP), effektive Variante mit MLCAPE, MLCIN, MLLCL und effektiver Helizität/Scherung. Ein Index für ein tornadogünstiges Umfeld, keine Tornadowahrscheinlichkeit. Modellprofil-Näherung.',
+ ship:'Significant Hail Parameter (SHIP) nach NOAA NSHARP: MUCAPE, Mischungsverhältnis des MU-Pakets, Temperatur auf 500 hPa, Lapse Rate 700–500 hPa und Scherung 0–6 km. Index für großhagelfreundliche Bedingungen, keine Hagelgröße in cm.',
+ hail:'Maximaler modellierter Hagelkorndurchmesser am Boden aus DWD ICON-D2-RUC (DEMAX_HAIL_S), in cm. Nächste native Dreieckszelle auf 0,02° Darstellungsraster. Modellwert zur angegebenen Zeit, keine Messung und keine Garantie.',
+ downburst:'Wet Microburst Severity Index (WMSI) nach Pryor/Ellrod: SBCAPE mal die positive Theta-e-Differenz zwischen Oberfläche und mittlerer Troposphäre (500–700 hPa) geteilt durch 1000. Zeigt Potenzial feuchter Abwinde; kein Windtempo, keine Wahrscheinlichkeit und kein Nachweis eines Microbursts. DCAPE ergänzt die Analyse.',
  TTAE:'Spezialindex zur thermodynamischen Analyse. Solange keine eindeutige, validierte Berechnung angebunden ist, wird kein Wert ausgegeben.',
  rainrate:'Mittlere Niederschlagsintensität im letzten tatsächlich vom Modell gelieferten Zeitintervall. Ein Millimeter Wasser entspricht einem Liter pro Quadratmeter.',
  rainTotal:'Gesamter Niederschlag seit Initialisierung des Modelllaufs; keine rollierende 24-Stunden-Summe.',
@@ -3033,7 +3038,7 @@ function expertValue(item){
 function expertParameterGroup([title,icon,items],i){return '<details class="parameter-group" '+(i===0?'open':'')+'><summary><span class="group-icon">'+ui(icon,17)+'</span><span class="group-title">'+title+'</span><span class="group-count">'+items.length+' Werte</span>'+ui('chevron',16,'chev')+'</summary><div class="parameter-grid">'+items.map(expertValue).join('')+'</div></details>'}
 
 
-el('model-list').innerHTML=[['ICON-D2','DWD · Kurzfrist · Deutschland'],['ICON-EU','DWD · Mitteleuropa'],['IFS','ECMWF · Physikalisches Modell'],['GFS','NOAA · Global'],['AIFS','ECMWF · KI-Prognose · 15 Tage'],['AIFS-ENS Control','ECMWF · KI-Ensemble · Kontrolllauf']].map(m=>'<button class="model" data-expert-model="'+m[0]+'" style="width:100%;text-align:left"><div><h3>'+m[0]+'</h3><p>'+m[1]+'</p><p data-expert-availability="'+m[0]+'">Noch nicht geprüft</p></div><span class="badge">Karte ›</span></button>').join('');
+el('model-list').innerHTML=[['ICON-D2','DWD · Kurzfrist · Deutschland'],['ICON-D2-RUC','DWD · Hageldurchmesser · Kurzfrist'],['ICON-EU','DWD · Mitteleuropa'],['IFS','ECMWF · Physikalisches Modell'],['GFS','NOAA · Global'],['AIFS','ECMWF · KI-Prognose · 15 Tage'],['AIFS-ENS Control','ECMWF · KI-Ensemble · Kontrolllauf']].map(m=>'<button class="model" data-expert-model="'+m[0]+'" style="width:100%;text-align:left"><div><h3>'+m[0]+'</h3><p>'+m[1]+'</p><p data-expert-availability="'+m[0]+'">Noch nicht geprüft</p></div><span class="badge">Karte ›</span></button>').join('');
 const expertGroups=[
  ['Instabilität & Konvektion','weather',[
   ['SBCAPE',250,'J/kg','Oberflächenluftpaket'],['MLCAPE',180,'J/kg','Gemittelte Grenzschicht'],['MUCAPE',320,'J/kg','Most unstable'],['SBCIN','−15','J/kg'],['MLCIN','−30','J/kg'],['Lifted Index','−1,4','K'],['Total Totals (TT)',44,'K'],['K-Index',22,'°C'],['DCAPE',180,'J/kg','Abwindpotenzial']
@@ -3048,7 +3053,7 @@ const expertGroups=[
   ['PWAT','15,2','mm','Niederschlagbares Wasser'],['Rel. Feuchte 850 hPa',78,'%'],['Rel. Feuchte 700 hPa',64,'%'],['Rel. Feuchte 500 hPa',46,'%'],['Spezifische Feuchte 850 hPa','3,8','g/kg'],['QPF 24 h','2,3','mm'],['Konvektive QPF','0,8','mm/24 h'],['Stratiforme QPF','1,5','mm/24 h']
  ]],
  ['Gefahrenindizes & eigene Ableitungen','alert',[
-  ['Supercell Composite (SCP)','—','','Effektive Scherung, SRH und MUCAPE erforderlich'],['Significant Tornado (STP)','—','','Validiertes Scherungs-, SRH- und Luftpaketprofil erforderlich'],['Energy Helicity Index (EHI 0–3 km)','—','','SRH und MLCAPE erforderlich'],['Significant Hail (SHIP)','—','','Vollständiges Hagel- und Scherungsprofil erforderlich'],['Potenzielle Hagelgröße','—','cm','Keine belastbare Größenableitung aus den verfügbaren Feldern'],['Downburst / Microburst','—','','Validiertes Abwind- und Feuchteprofil erforderlich'],['Ideale Abwindgeschwindigkeit','—','km/h','Nur bei vorhandenem DCAPE']
+  ['Supercell Composite (SCP)','—','','Effektives Modellprofil erforderlich'],['Significant Tornado (STP)','—','','Effektives Modellprofil erforderlich'],['Energy Helicity Index (EHI 0–3 km)','—','','SRH und MLCAPE erforderlich'],['Significant Hail (SHIP)','—','','MU-Luftpaket und Scherung erforderlich'],['Potenzielle Hagelgröße','—','cm','DWD ICON-D2-RUC · Durchmesserprodukt erforderlich'],['Downburst / Microburst','—','','WMSI · feuchte Abwind-Umgebung'],['Ideale Abwindgeschwindigkeit','—','km/h','Nur bei vorhandenem DCAPE']
  ]]
 ];
 expertGroups[0][2].push(['MUCIN','—','J/kg']);
@@ -3080,11 +3085,12 @@ expertMapLinks['Schneewasseräquivalent (SWE)']='snowWater';
 expertMapLinks['Schneedichte']='snowDensity';
 el('expert-data').innerHTML=expertGroups.map(expertParameterGroup).join('');
 document.querySelectorAll('[data-map-layer]').forEach(b=>b.addEventListener('click',()=>openMapLayer(b.dataset.mapLayer)));
-document.querySelectorAll('[data-expert-model]').forEach(b=>b.addEventListener('click',()=>openMapLayer(null,b.dataset.expertModel)));
+document.querySelectorAll('[data-expert-model]').forEach(b=>b.addEventListener('click',()=>openMapLayer(b.dataset.expertModel==='ICON-D2-RUC'?'hail':null,b.dataset.expertModel)));
 function openDialog(){el('search-input').value='';renderLocations();el('location-dialog').classList.add('open');el('search-input').focus()}
 function closeDialog(){cancelPlaceLookup();el('location-dialog').classList.remove('open');el('search-open').focus()}
 el('pin-icon').innerHTML=ui('pin',23);el('loc-chevron').innerHTML=ui('chevron',16);el('search-open').innerHTML=ui('search',22);el('close-dialog').innerHTML=ui('close',22);
 el('location-open').addEventListener('click',openDialog);el('search-open').addEventListener('click',openDialog);el('close-dialog').addEventListener('click',closeDialog);el('search-input').addEventListener('input',renderLocations);el('place-online-search').addEventListener('click',searchOnlinePlaces);el('search-input').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();searchOnlinePlaces()}});el('location-dialog').addEventListener('click',e=>{if(e.target===el('location-dialog'))closeDialog()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&el('location-dialog').classList.contains('open'))closeDialog()});
 weatherRealEnabled=true;initPreferences();initModelData();initWeatherData();initRealLive();
 })();
+
 
