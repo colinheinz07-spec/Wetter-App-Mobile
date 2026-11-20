@@ -79,15 +79,18 @@ vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`
  assert.deepEqual(rgba(5),[130,150,156,224]); // unknown, not rain
  r('drawRealRadar(drawContext,{},new Date(f.time),()=>{},true)');
  assert.equal(draws,1);assert.equal(builds,1);
+ r("ownRadarRaster(f,'snowfall')");assert.ok(rgba(3)[3]);assert.equal(rgba(4)[3],0);assert.equal(rgba(2)[3],0);
+ r("ownRadarRaster(f,'types')");assert.ok(rgba(2)[3]);assert.ok(rgba(3)[3]);assert.ok(rgba(4)[3]);
+ assert.equal(r('phaseCodeFromModel(71,NaN,-3,-4,90)'),7);assert.equal(r('phaseCodeFromModel(66,NaN,-1,-2,90)'),5);assert.equal(r('phaseCodeFromModel(68,NaN,0,-1,90)'),6);assert.equal(r('phaseCodeFromModel(89,NaN,8,7,90)'),9);assert.equal(r('phaseCodeFromModel(NaN,NaN,NaN,NaN,NaN)'),1);
  r('radarPhaseData.time=new Date(f.time-300000).toISOString()');
- assert.equal(r('ownRadarObservation().source'),'HymecNG');
- assert.equal(r('ownRadarObservation().amount'),undefined);
+ assert.equal(r('ownRadarObservation().source'),'RY + HymecNG');
+ assert.equal(r('ownRadarObservation().amount'),amount);
  r('radarPhaseData=null;radarNowcastData={time:radarPointData.time,grid:radarPointData.grid,frames:{5:radarPointData.amount}}');
  assert.equal(r('ownRadarObservation().source'),'RY');
  assert.equal(r('ownRadarFrame(new Date(f.time+300000)).forecast'),true);
  assert.equal(r('ownRadarFrame(new Date(f.time+300000)).classes'),undefined);
  assert.equal(r('ownRadarFrame(new Date(f.time+600000))'),null);
- console.log('Own radar: snow/rain/hail/unknown colours, missing cells, exact scan matching, forecast isolation, raster reuse: OK');
+ console.log('Own radar: snow/rain/hail/unknown colours, missing cells, five-minute scan matching, type and snow layers, model phase fallback, forecast isolation, raster reuse: OK');
 }
 
  // The real radar adapter is exercised with an asynchronous image decoder.
