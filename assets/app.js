@@ -2478,7 +2478,7 @@ function initWeatherData(){
  weatherRealEnabled=true;renderWeather();
  const update=()=>{const p=homeLocationPoint(location);fetchOperaRadar();fetchRadarPhase();fetchRadarPoints();fetchLocationForecast(p);setTimeout(fetchStationData,3500);setTimeout(fetchRadarNowcast,4500);if(activePage==='warnings')renderLocalWarnings()};update();
  setInterval(()=>{if(!document.hidden){update();if(activePage==='weather')renderWeather()}},5*60000);
- setInterval(()=>{if(!document.hidden&&activePage==='weather'){const p=homeLocationPoint(location);if(!currentGridFrame(p))fetchLocationForecast(p,true);if(!radarPhaseData||Date.now()-Date.parse(radarPhaseData.time)>20*60000)fetchRadarPhase();if(!ownRadarFresh(radarPointData,12))fetchBrightRadar();refreshLiveHero()}},30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden){update();if(activePage==='weather')renderWeather();else if(activePage==='warnings')renderLocalWarnings();else if(activePage==='expert')renderRealExpert()}});window.addEventListener('online',()=>{update()});
+ setInterval(()=>{if(!document.hidden&&activePage==='weather'){const p=homeLocationPoint(location);if(!currentGridFrame(p))fetchLocationForecast(p,true);if(!radarPhaseData||Date.now()-Date.parse(radarPhaseData.time)>20*60000)fetchRadarPhase();if(!ownRadarFresh(radarPointData,12)&&!ownRadarFresh(operaRadarData,20))fetchBrightRadar();refreshLiveHero()}},30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden){update();if(activePage==='weather')renderWeather();else if(activePage==='warnings')renderLocalWarnings();else if(activePage==='expert')renderRealExpert()}});window.addEventListener('online',()=>{update()});
 }
 function renderRealExpert(){
  const point=homeLocationPoint(location),now=Date.now(),f=currentGridFrame(point,now),opened=[...el('expert-data').querySelectorAll('details')].map(d=>d.open);fetchPointProfile(point,f);fetchLocationTile(point,'ICON-D2-RUC',nativeMapRoot('icon-d2-ruc'));
@@ -2755,7 +2755,7 @@ function ownRadarObservation(){
  const opera=ownRadarFresh(operaRadarData,35)?operaRadarData:null;
  const ry=typeof radarPointData!=='undefined'&&ownRadarFresh(radarPointData)?radarPointData:null;
  const ph=typeof radarPhaseData!=='undefined'&&ownRadarFresh(radarPhaseData)?radarPhaseData:null;
- if(opera&&(!ry||Date.parse(opera.time)>=Date.parse(ry.time)-10*60000)){const t=Date.parse(opera.time),pt=Date.parse(ph?.time),phase=ph&&Math.abs(t-pt)<=5*60000&&ownRadarMatch(opera.grid,ph.grid)?ph:null;return {time:t,grid:opera.grid,amount:opera.amount,rateFactor:1,classes:phase?.classes,phaseTime:phase?pt:null,source:'EUMETNET OPERA · CC BY 4.0'+(phase?' + HymecNG':''),key:'opera/'+t+'/'+(phase?pt:'model')};}
+ if(opera){const t=Date.parse(opera.time),pt=Date.parse(ph?.time),phase=ph&&Math.abs(t-pt)<=5*60000&&ownRadarMatch(opera.grid,ph.grid)?ph:null;return {time:t,grid:opera.grid,amount:opera.amount,rateFactor:1,classes:phase?.classes,phaseTime:phase?pt:null,source:'EUMETNET OPERA · CC BY 4.0'+(phase?' + HymecNG':''),key:'opera/'+t+'/'+(phase?pt:'model')};}
  if(!ry&&!ph)return null;
  const rt=Date.parse(ry?.time),pt=Date.parse(ph?.time),both=ry&&ph&&Math.abs(rt-pt)<=5*60000&&ownRadarMatch(ry.grid,ph.grid);
  // Prefer a recent phase scan to an unmatched intensity scan rather than

@@ -8,6 +8,9 @@ const modelNames={'icon-d2':'ICON-D2','icon-eu':'ICON-EU','ifs':'IFS','ifs-short
 const packed=n=>{const b=Buffer.alloc(8);for(let i=0;i<4;i++)b.writeInt16LE(n,i*2);return b.toString('base64')};
 const keys=['temp2','dew','wind','slp','cloud','rainTotal','mlcape','gust','ww','winddir'];
 const values={temp2:100,dew:60,wind:140,slp:10100,cloud:750,mlcape:750,gust:400,ww:3,winddir:1800};
+const radarGrid={west:2,south:45,step:.01,nx:1601,ny:1201,scale:.01,missing:-32768};
+const radarBytes=Buffer.alloc(radarGrid.nx*radarGrid.ny*2);for(let i=0;i<radarBytes.length;i+=2)radarBytes.writeInt16LE(70,i);
+const operaPacket={schema:1,product:'OPERA-RATE',time:scan,grid:radarGrid,amount:radarBytes.toString('base64')};
 const grid={west:8,south:48,step:6,nx:2,ny:2,scale:.1,missing:-32768};
 const fieldValue=(k,h)=>packed(k==='rainTotal'?h*2:values[k]??100);
 const manifest=(file,point=false)=>{
@@ -40,6 +43,7 @@ const server=http.createServer((req,res)=>{
     if(item==='point-0-0.json.gz')return json({schema:3,run,generated:run,key:'0-0',frames:Object.fromEntries(m.hours.map(h=>[h,Object.fromEntries(m.frames[h].map(k=>[k,fieldValue(k,h)]))]))});
     if(h)return json({schema:2,run,generated:run,hour:+h,field:k,values:fieldValue(k,+h)});
    }
+   if(p.endsWith('/opera-radar.json.gz'))return json(operaPacket);
    if(u.hostname==='opendata.dwd.de')return route.fulfill({headers:{'access-control-allow-origin':'*'},body:'<a href="composite_rv_20261119_1820.tar">Radar</a>'});
    if(u.hostname==='maps.dwd.de'){
     if(u.searchParams.get('request')==='GetMap'&&Date.parse(u.searchParams.get('time'))===Date.parse(scan)+90*60000)return route.fulfill({status:404});
@@ -89,15 +93,15 @@ const server=http.createServer((req,res)=>{
   await page.locator('[data-map-source="live"]').click();
   await page.locator('#map-live-layer').selectOption('radar');
   await page.locator('#map-nowcast-now').click();
-  await page.waitForFunction(()=>document.querySelector('#map-data-notice').textContent==='DWD · Radar');
-  const currentRadar=()=>requests.filter(s=>{const u=new URL(s);return u.hostname==='maps.dwd.de'&&u.searchParams.get('request')==='GetMap'&&Date.parse(u.searchParams.get('time'))===Date.parse(scan)});
+  await page.waitForFunction(()=>document.querySelector('#map-data-notice').textContent==='Eigenes Radar');
+  const currentRadar=()=>requests.filter(s=>new URL(s).pathname.endsWith('/opera-radar.json.gz'));
   const count=currentRadar().length;assert.equal(count,1);
   await page.locator('#map-zoom-plus').click();await page.locator('#map-zoom-plus').click();
   await page.waitForTimeout(350);assert.equal(currentRadar().length,count);
   await page.locator('#map-full-open').click();await page.waitForTimeout(350);assert.equal(currentRadar().length,count);
   await page.locator('#map-nowcast-forward').click();
-  await page.waitForFunction(()=>document.querySelector('#map-data-notice').textContent==='Radar nicht erreichbar');
-  assert.ok(!requests.some(s=>{const u=new URL(s);return u.searchParams.get('layers')==='dwd:Niederschlagsradar'&&Date.parse(u.searchParams.get('time'))===Date.parse(scan)+90*60000}),'future forecast must not fall back to a measured image');
+  await page.waitForFunction(()=>document.querySelector('#map-data-notice').textContent==='Radar wird geladen …');
+  assert.ok(!requests.some(s=>new URL(s).hostname==='maps.dwd.de'),'numeric radar must never request DWD WMS images');
   await page.locator('[data-full-layer="reflectivity"]').click();
   await page.waitForFunction(()=>document.querySelector('#map-data-notice').textContent==='Beobachtung');
   await page.locator('[data-full-layer="satellite"]').click();

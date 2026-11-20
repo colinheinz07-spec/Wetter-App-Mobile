@@ -65,7 +65,7 @@ vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`
  const t=now-5*60000,iso=new Date(t).toISOString(),amount=pack([10,10,10,0,-32768,100]),classes=Buffer.from([7,3,255,0,255,9]).toString('base64');
  let builds=0,rendered=null,draws=0;
  const canvas=()=>({getContext:()=>({createImageData:(w,h)=>({data:new Uint8ClampedArray(w*h*4)}),putImageData:im=>{rendered=im.data;builds++}})});
- const c=vm.createContext({Date:TestDate,Map,Math,Number,atob,console,radarBaseTime:()=>t,radarPointData:{time:iso,grid,amount},radarPhaseData:{time:iso,grid:{...grid,missing:255},classes},radarNowcastData:null,document:{createElement:canvas},scheduleMap:()=>{},xy:(x,y)=>[x,y],drawContext:{drawImage:()=>draws++}});
+ const c=vm.createContext({Date:TestDate,Map,Math,Number,atob,console,radarBaseTime:()=>t,operaRadarData:null,radarPointData:{time:iso,grid,amount},radarPhaseData:{time:iso,grid:{...grid,missing:255},classes},radarNowcastData:null,document:{createElement:canvas},scheduleMap:()=>{},xy:(x,y)=>[x,y],drawContext:{drawImage:()=>draws++}});
  vm.runInContext(chunk('const radarCoverage=','function drawRealLiveField'),c);
  const r=s=>vm.runInContext(s,c);
  assert.equal(r('ownRadarObservation().source'),'RY + HymecNG');
@@ -73,9 +73,9 @@ vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`
  assert.equal(builds,1);
  const rgba=i=>Array.from(rendered.slice(i*4,i*4+4));
  assert.equal(rgba(0)[3],0);assert.equal(rgba(1)[3],0); // north: dry/missing
- assert.deepEqual(rgba(2),[209,0,169,224]); // north: hail 12 mm/h
- assert.deepEqual(rgba(3),[247,139,197,224]); // south: snow 1.2 mm/h
- assert.deepEqual(rgba(4),[39,151,242,224]); // south: rain
+ assert.deepEqual(rgba(2),[240,0,199,224]); // north: hail 12 mm/h
+ assert.deepEqual(rgba(3),[243,106,186,224]); // south: snow 1.2 mm/h
+ assert.deepEqual(rgba(4),[8,121,223,224]); // south: rain
  assert.deepEqual(rgba(5),[130,150,156,224]); // unknown, not rain
  r('drawRealRadar(drawContext,{},new Date(f.time),()=>{},true)');
  assert.equal(draws,1);assert.equal(builds,1);
@@ -93,21 +93,19 @@ vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`
  console.log('Own radar: snow/rain/hail/unknown colours, missing cells, five-minute scan matching, type and snow layers, model phase fallback, forecast isolation, raster reuse: OK');
 }
 
- // The real radar adapter is exercised with an asynchronous image decoder.
- let base=now-10*60000,loaded=[],draws=[],fail=new Set();
- class TestImage{set src(url){if(!url)return;loaded.push(url);queueMicrotask(()=>{if(fail.has(url))this.onerror?.();else this.onload?.()})}}
- const radar=vm.createContext({console,Date:TestDate,URLSearchParams,Map,Set,Math,Number,Image:TestImage,setTimeout:()=>0,clearTimeout:()=>{},navigator:{connection:{saveData:false}},document:{hidden:false},radarWms:'https://maps.dwd.de/geoserver/dwd/wms',radarBaseTime:()=>base,radarImages:new Map(),radarRevision:0,activePage:'map',liveMinute:0,stationData:null,scheduleMap:()=>{},xy:(lon,lat,b)=>[(lon-b.west)*b.w/(b.east-b.west),(b.north-lat)*b.h/(b.north-b.south)],drawContext:{drawImage:(...a)=>draws.push(a)}});
+ // Numeric radar is reused across zoom and fullscreen; no WMS fallback.
+ const radarGrid={west:2,south:45,step:1,nx:2,ny:2,scale:.01,missing:-32768},radarAmount=Buffer.from([100,0,0,0,100,0,100,0]).toString('base64');
+ const base=now-10*60000,draws=[];let builds=0;
+ const radar=vm.createContext({console,Date:TestDate,Map,Math,Number,atob,base,operaRadarData:{time:new Date(base).toISOString(),grid:radarGrid,amount:radarAmount},radarPointData:null,radarPhaseData:null,radarNowcastData:null,radarBaseTime:()=>base,document:{createElement:()=>({getContext:()=>({createImageData:(w,h)=>({data:new Uint8ClampedArray(w*h*4)}),putImageData:()=>builds++})})},scheduleMap:()=>{},xy:(lon,lat,b)=>[(lon-b.west)*b.w/(b.east-b.west),(b.north-lat)*b.h/(b.north-b.south)],drawContext:{drawImage:(...a)=>draws.push(a)}});
  vm.runInContext(chunk('const radarCoverage=','function drawRealLiveField'),radar);
  const r=s=>vm.runInContext(s,radar);
  r("const time=new Date(radarBaseTime()),a={west:2,south:45,east:18,north:57,w:360,h:160},b={west:7,south:49,east:9,north:51,w:800,h:600};drawRealRadar(drawContext,a,time);drawRealRadar(drawContext,b,time)");
- await new Promise(r=>setImmediate(r));
- r('drawRealRadar(drawContext,a,time);drawRealRadar(drawContext,b,time)');
- assert.equal(loaded.length,1);assert.equal(draws.length,2);assert.notEqual(draws[0][3],draws[1][3]);
- const future=r('new Date(radarBaseTime()+90*60000)');radar.future=future;const futureUrl=r('radarImageUrl(null,future)');fail.add(futureUrl);
- r('ensureRadarImage(future)');await new Promise(r=>setImmediate(r));
- assert.equal(loaded.length,2);assert.equal(r('radarImages.get(radarCacheKey(future)).state'),'error');
- const oldKey=r('radarCacheKey(future)');base+=90*60000;assert.notEqual(r('radarCacheKey(future)'),oldKey);
- console.log('Radar frame reuse across viewports, correct geographic placement and isolated measurement/forecast caches: OK');
+ assert.equal(builds,1);assert.equal(draws.length,2);assert.notEqual(draws[0][3],draws[1][3]);
+ assert.equal(r('ownRadarObservation().rateFactor'),1);
+ assert.equal(r('ownRadarFrame(new Date(base+90*60000))'),null);
+ assert.equal(r('drawRealRadar(drawContext,a,new Date(base+90*60000))'),'loading');
+ assert.equal(draws.length,2);
+ console.log('Numeric radar frame reuse, correct geographic placement and no observation substitution for forecast: OK');
  const explanations=vm.createContext({});vm.runInContext(chunk('const parameterExplanations=','function showParameterHelp')+chunk('const expertMapLinks=','const expertDerivedDescriptions=')+chunk('const expertGroups=','el(\'expert-data\').innerHTML=expertGroups'),explanations);
  const missing=vm.runInContext('expertGroups.flatMap(g=>g[2]).filter(x=>!parameterExplanation(expertMapLinks[x[0]]||x[0])).map(x=>x[0])',explanations);
  assert.deepEqual(Array.from(missing),[]);
