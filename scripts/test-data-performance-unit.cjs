@@ -20,6 +20,26 @@ vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`
   return {schema:2,run,generated,hour:+m[1],field:m[2],values:'ZABkAGQAZAA='};
  };
 `,ctx);
+
+// A radar intensity pixel is not a precipitation classification. Verify that
+// separately published, fresh HymecNG classes override even a rainy model.
+{
+ const sampleTime=now-5*60000,frame={d:{model:'ICON-D2'},time:sampleTime,values:{temp2:.1,rh2:99,cloud:99,ww:61}},radar={amount:.05,rate:.6,time:sampleTime};
+ const read=(f,id)=>f?.values?.[id]??NaN;
+ const live=vm.createContext({atob,frameVal:read,frameHumidity:f=>read(f,'rh2'),isNightAt:()=>false,fogCondition:()=>null,frameWeather:f=>f?{icon:'11_regen_1',condition:'Regen',source:'Modell'}:{icon:null,condition:'Wetterzustand nicht verfügbar',source:'Modell'},localTime:()=> '18:25',Date:TestDate,Math,Number,frame,radar,sampleTime,now});
+ vm.runInContext(chunk('let radarPhaseData=','async function fetchRadarPhase')+chunk('function currentCloudWeather(','function liveHeroWeatherHTML'),live);
+ const check=(code,name)=>assert.equal(vm.runInContext("livePhaseWeather(frame,radar,{code:"+code+",time:sampleTime},[8,50],now).condition",live),name);
+ check(7,'Schneefall');check(6,'Schneeregen');check(5,'Gefrierender Regen');check(3,'Regen');
+ assert.equal(vm.runInContext("livePhaseWeather(frame,radar,null,[8,50],now).condition",live),'Schneefall möglich');
+ assert.equal(vm.runInContext("livePhaseWeather(null,radar,null,[8,50],now).condition",live),'Niederschlag · Art nicht bestimmt');
+ assert.equal(vm.runInContext("livePhaseWeather(frame,{amount:0,rate:0,time:sampleTime},{code:0,time:sampleTime},[8,50],now).condition",live),'Bedeckt');
+ live.phasePacket={schema:1,product:'HymecNG',time:new Date(sampleTime).toISOString(),grid:{nx:2,ny:2,west:7,south:50,step:1,missing:255},classes:Buffer.from([0,7,6,255]).toString('base64')};
+ assert.equal(vm.runInContext("const phaseGrid=decodeRadarPhase(phasePacket);radarPhaseAt(phaseGrid,[8,50],now).code",live),7);
+ assert.equal(vm.runInContext("radarPhaseAt(phaseGrid,[8,51],now)",live),null);
+ assert.equal(vm.runInContext("radarPhaseAt(phaseGrid,[8,50],now+21*60000)",live),null);
+ console.log('Live weather: analysed snow/mix/rain/freezing phase, conservative fallback, cloud cover, no-data and staleness: OK');
+}
+
 (async()=>{
  assert.equal(ev('realData().file'),'icon-d2');
  ev("mapLayer='temp2'");assert.equal(ev('realData().file'),'icon-d2-de');
