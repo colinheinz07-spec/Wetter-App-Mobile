@@ -56,6 +56,40 @@ vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`
  ev('prefetchNextMapField(global,p,23)');assert.equal(ev('requests.get("24-mlcape.json.gz")'),1);ev('finish.shift()()');await new Promise(r=>setImmediate(r));
  assert.equal(ev('nativeFieldsReady(global,p,24)'),true);
  console.log('Native field selection, single download, bounded six-request queue, cache reuse and next-frame preload: OK');
+
+// Own raw-data radar: strict time matching, north/south orientation,
+// unknown phase never becomes rain, and canvas reuse across redraws.
+{
+ const grid={west:8,south:50,step:.01,nx:3,ny:2,scale:.01,missing:-32768};
+ const pack=(v)=>{const b=Buffer.alloc(v.length*2);v.forEach((x,i)=>b.writeInt16LE(x,i*2));return b.toString('base64')};
+ const t=now-5*60000,iso=new Date(t).toISOString(),amount=pack([10,10,10,0,-32768,100]),classes=Buffer.from([7,3,255,0,255,9]).toString('base64');
+ let builds=0,rendered=null,draws=0;
+ const canvas=()=>({getContext:()=>({createImageData:(w,h)=>({data:new Uint8ClampedArray(w*h*4)}),putImageData:im=>{rendered=im.data;builds++}})});
+ const c=vm.createContext({Date:TestDate,Map,Math,Number,atob,console,radarBaseTime:()=>t,radarPointData:{time:iso,grid,amount},radarPhaseData:{time:iso,grid:{...grid,missing:255},classes},radarNowcastData:null,document:{createElement:canvas},scheduleMap:()=>{},xy:(x,y)=>[x,y],drawContext:{drawImage:()=>draws++}});
+ vm.runInContext(chunk('const radarCoverage=','function drawRealLiveField'),c);
+ const r=s=>vm.runInContext(s,c);
+ assert.equal(r('ownRadarObservation().source'),'RY + HymecNG');
+ r('const f=ownRadarObservation();ownRadarRaster(f);ownRadarRaster(f);');
+ assert.equal(builds,1);
+ const rgba=i=>Array.from(rendered.slice(i*4,i*4+4));
+ assert.equal(rgba(0)[3],0);assert.equal(rgba(1)[3],0); // north: dry/missing
+ assert.deepEqual(rgba(2),[209,0,169,224]); // north: hail 12 mm/h
+ assert.deepEqual(rgba(3),[247,139,197,224]); // south: snow 1.2 mm/h
+ assert.deepEqual(rgba(4),[39,151,242,224]); // south: rain
+ assert.deepEqual(rgba(5),[130,150,156,224]); // unknown, not rain
+ r('drawRealRadar(drawContext,{},new Date(f.time),()=>{},true)');
+ assert.equal(draws,1);assert.equal(builds,1);
+ r('radarPhaseData.time=new Date(f.time-300000).toISOString()');
+ assert.equal(r('ownRadarObservation().source'),'HymecNG');
+ assert.equal(r('ownRadarObservation().amount'),undefined);
+ r('radarPhaseData=null;radarNowcastData={time:radarPointData.time,grid:radarPointData.grid,frames:{5:radarPointData.amount}}');
+ assert.equal(r('ownRadarObservation().source'),'RY');
+ assert.equal(r('ownRadarFrame(new Date(f.time+300000)).forecast'),true);
+ assert.equal(r('ownRadarFrame(new Date(f.time+300000)).classes'),undefined);
+ assert.equal(r('ownRadarFrame(new Date(f.time+600000))'),null);
+ console.log('Own radar: snow/rain/hail/unknown colours, missing cells, exact scan matching, forecast isolation, raster reuse: OK');
+}
+
  // The real radar adapter is exercised with an asynchronous image decoder.
  let base=now-10*60000,loaded=[],draws=[],fail=new Set();
  class TestImage{set src(url){if(!url)return;loaded.push(url);queueMicrotask(()=>{if(fail.has(url))this.onerror?.();else this.onload?.()})}}
