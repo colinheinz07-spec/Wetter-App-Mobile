@@ -933,7 +933,7 @@ function previewField(canvas,layer,point,name){
 function renderHomeMaps(){
  document.querySelectorAll('[data-home-map]').forEach(b=>b.onclick=()=>openHomeMap(b.dataset.homeMap));
  const point=homeLocationPoint(location);if(!point)return;
- if(typeof weatherRealEnabled!=='undefined'&&weatherRealEnabled){renderRealHomeMaps(point);return}
+ if(typeof weatherRealEnabled!=='undefined'&&weatherRealEnabled){if(homeMapsVisible())renderRealHomeMaps(point);return}
  for(const [id] of homeMapLayers){
   const canvas=el('home-map-'+id),key=location.name+'/'+point.join(',')+'/'+id;
   if(!homePreviewCache.has(key)){
@@ -945,11 +945,22 @@ function renderHomeMaps(){
   el('home-value-'+id).textContent=id==='radar'?(s.rate>0?f(s.rate)+' mm/h':'Trocken'):id==='temperature'?f(s.temp)+' °C':f(s.wind)+' km/h';
  }
 }
-let homePreviewObserver=null;
+let homePreviewObserver=null,homeMapRefreshTimer=null;
+function homeMapsVisible(){
+ if(activePage!=='weather'||document.hidden)return false;
+ const panel=document.querySelector('.home-maps');if(!panel)return false;
+ const b=panel.getBoundingClientRect();return b.bottom>=-160&&b.top<innerHeight+160;
+}
+// Model/radar packets arrive independently; combine their notifications and
+// never decode or paint offscreen previews in the background.
+function scheduleHomeMaps(){
+ if(!homeMapsVisible()||homeMapRefreshTimer!==null)return;
+ homeMapRefreshTimer=setTimeout(()=>{homeMapRefreshTimer=null;if(homeMapsVisible())renderHomeMaps()},120);
+}
 function deferHomeMaps(){
  homePreviewObserver?.disconnect();const panel=document.querySelector('.home-maps');if(!panel)return;
  document.querySelectorAll('[data-home-map]').forEach(b=>b.onclick=()=>openHomeMap(b.dataset.homeMap));
- if(typeof IntersectionObserver==='function'){homePreviewObserver=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting)&&panel.isConnected){homePreviewObserver.disconnect();if(activePage==='weather')renderHomeMaps()}},{rootMargin:'160px'});homePreviewObserver.observe(panel)}else setTimeout(()=>{if(panel.isConnected&&activePage==='weather')renderHomeMaps()},200);
+ if(typeof IntersectionObserver==='function'){homePreviewObserver=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting)&&panel.isConnected)scheduleHomeMaps()},{rootMargin:'160px'});homePreviewObserver.observe(panel)}else scheduleHomeMaps();
 }
 function setMapInfo(open){
  mapInfoOpen=!!open;el('page-map').classList.toggle('map-info-open',mapInfoOpen);
@@ -1364,7 +1375,7 @@ async function fetchNativeMapModel(model,force=false,germany=germanyMapRegion())
   const task=(async()=>{try{
    const raw=await nativeMapRead(file,'index.json'),m=validateNativeMapManifest(raw,model,file);
    nativeMapFailures.delete(file);
-   if(newerSnapshot(m,nativeMapModels.get(file))){nativeMapModels.set(file,m);realModelRevision++;if(activePage==='map'){if(mapSource==='model'&&mapModel===model)renderMap();else if(mapSource==='live')scheduleMap()}else if(activePage==='weather'&&el('home-map-temperature'))renderHomeMaps()}
+   if(newerSnapshot(m,nativeMapModels.get(file))){nativeMapModels.set(file,m);realModelRevision++;if(activePage==='map'){if(mapSource==='model'&&mapModel===model)renderMap();else if(mapSource==='live')scheduleMap()}else if(activePage==='weather')scheduleHomeMaps()}
   }catch{nativeMapFailures.set(file,Date.now());if(activePage==='map')setTimeout(()=>{if(activePage==='map'&&(mapModel===model||mapSource==='live'))scheduleMap()},15500)}})().finally(()=>{nativeMapLoading.delete(file);if(activePage==='map'&&mapModel===model)scheduleMap();if(activePage==='expert')updateExpertModelAvailability()});
   nativeMapLoading.set(file,task);return task;
  }));
@@ -1421,14 +1432,14 @@ function fetchNativeMapFields(d,p,h,priority=true){
     d.decoded.set(id,a);while(d.decoded.size>24)d.decoded.delete(d.decoded.keys().next().value);return true;
    }catch{return false}
   };
-  let resolve;const task=new Promise(r=>resolve=r).then(ok=>{if(ok)nativeFieldFailures.delete(key);else if(ok===false){nativeFieldFailures.set(key,Date.now());if(priority)setTimeout(()=>{if(activePage==='map'&&(mapSource==='live'||realData()===d&&mapHour===h))scheduleMap();else if(activePage==='weather'&&el('home-map-temperature'))renderHomeMaps()},10500)}return ok}).finally(()=>nativeFieldLoading.delete(key));
+  let resolve;const task=new Promise(r=>resolve=r).then(ok=>{if(ok)nativeFieldFailures.delete(key);else if(ok===false){nativeFieldFailures.set(key,Date.now());if(priority)setTimeout(()=>{if(activePage==='map'&&(mapSource==='live'||realData()===d&&mapHour===h))scheduleMap();else if(activePage==='weather')scheduleHomeMaps()},10500)}return ok}).finally(()=>nativeFieldLoading.delete(key));
   nativeFieldLoading.set(key,task);const job={key,run,resolve};if(priority)nativeFieldQueue.unshift(job);else nativeFieldQueue.push(job);
   // Rapid scrubbing may supersede pending frames. Do not accumulate an
   // unbounded queue; any cancelled selection can be requested again.
   while(nativeFieldQueue.length>24){const discarded=nativeFieldQueue.pop();discarded.resolve(null)}
   pumpNativeFields();return task;
  });
- return Promise.all(tasks).then(a=>{if(a.some(Boolean)){realModelRevision++;if(activePage==='map')scheduleMap();else if(activePage==='weather'&&el('home-map-temperature'))renderHomeMaps()}return a.every(Boolean)});
+ return Promise.all(tasks).then(a=>{if(a.some(Boolean)){realModelRevision++;if(activePage==='map')scheduleMap();else if(activePage==='weather')scheduleHomeMaps()}return a.every(Boolean)});
 }
 function prefetchNextMapField(d,p,h){
  if(!d?.nativeMap||!nativeFieldsReady(d,p,h)||nativeFieldLoading.size||document.hidden||navigator.connection?.saveData)return;
@@ -1686,7 +1697,7 @@ function restorePointWeather(p){
  }catch{}
 }
 let savePointTimer=null,pointRefreshTimer=null;
-function refreshPointUI(){if(pointRefreshTimer!==null)return;pointRefreshTimer=setTimeout(()=>{pointRefreshTimer=null;if(activePage==='weather')renderWeather();else if(activePage==='warnings')renderLocalWarnings();else if(activePage==='expert')renderRealExpert()},220)}
+function refreshPointUI(){if(pointRefreshTimer!==null)return;pointRefreshTimer=setTimeout(()=>{pointRefreshTimer=null;if(document.hidden)return;if(activePage==='weather')renderWeather();else if(activePage==='warnings')renderLocalWarnings();else if(activePage==='expert')renderRealExpert()},450)}
 function cachePointWeather(p){if(savePointTimer!==null||!p)return;savePointTimer=setTimeout(()=>{savePointTimer=null;if(pointKey(homeLocationPoint(location))!==pointKey(p))return;try{const runs=forecastPriority.flatMap(model=>locationRuns(model,p).filter(d=>Date.parse(d.run)+d.hours.at(-1)*3600000>=Date.now()-DAY_MS).slice(0,4).map(d=>compactLocationRun(d,p)).filter(Boolean));if(runs.length)localStorage.setItem(pointStoreKey,JSON.stringify({key:pointKey(p),runs}));}catch{}},500)}
 // Fast current-only point packets are isolated from full forecast runs.
 const quickCurrentCache=new Map(),quickCurrentRequests=new Map(),quickCurrentChecks=new Map();
@@ -1732,15 +1743,18 @@ let locationRefreshKey='',locationRefreshTime=0;
 function fetchLocationForecast(p,force=false){
  if(!p)return;const key=pointKey(p);restorePointWeather(p);restoreQuickWeather(p);
  if(!force&&key===locationRefreshKey&&Date.now()-locationRefreshTime<60000)return;locationRefreshKey=key;locationRefreshTime=Date.now();
+ if(nowcastPointKey&&nowcastPointKey!==key)setTimeout(()=>{if(pointKey(homeLocationPoint(location))===key)fetchRadarNowcast()},0);
  const base='https://raw.githubusercontent.com/colinheinz07-spec/Wetter-App/',hourly=model=>base+'generated-points-'+realModelFiles[model]+'/',regional=['ICON-D2','ICON-EU'];
  const same=()=>pointKey(homeLocationPoint(location))===key;
  const quick=Promise.allSettled(regional.map(model=>fetchQuickWeather(p,model,hourly(model)+'quick/')));
  // The full packets also start promptly if the new quick product is not
  // published yet. All subsequent downloads are background work.
- Promise.race([quick,new Promise(resolve=>setTimeout(resolve,600))]).then(()=>{if(!same())return;return Promise.allSettled(regional.map(model=>fetchLocationTile(p,model,hourly(model))))}).then(()=>{if(same())refreshPointUI()});
- setTimeout(()=>{if(!same())return;Promise.allSettled(['IFS','GFS'].map(model=>fetchLocationTile(p,model,base+'generated-native-'+realModelFiles[model]+'/')).concat([fetchLocationTile(p,'IFS',base+'generated-native-ifs-short/'),fetchLocationTile(p,'GFS',base+'generated-native-gfs-de/')])).then(()=>{if(same())refreshPointUI()})},1800);
- setTimeout(()=>{if(!same())return;Promise.allSettled(regional.flatMap(model=>[fetchLocationTile(p,model,hourly(model)+'anchor/'),fetchLocationTile(p,model,base+'generated-native-'+realModelFiles[model]+'/')])).then(()=>{if(same())refreshPointUI()})},4000);
- setTimeout(()=>{if(!same())return;Promise.allSettled(['AIFS','AIFS-ENS Control'].map(model=>fetchLocationTile(p,model,base+'generated-native-'+realModelFiles[model]+'/'))).then(()=>{if(same())refreshPointUI()})},6500);
+ // Successful, changed packets already notify refreshPointUI. Failed or
+ // unchanged requests must not rebuild the entire forecast and its DOM.
+ Promise.race([quick,new Promise(resolve=>setTimeout(resolve,600))]).then(()=>{if(same())return Promise.allSettled(regional.map(model=>fetchLocationTile(p,model,hourly(model))))});
+ setTimeout(()=>{if(same())Promise.allSettled(['IFS','GFS'].map(model=>fetchLocationTile(p,model,base+'generated-native-'+realModelFiles[model]+'/')).concat([fetchLocationTile(p,'IFS',base+'generated-native-ifs-short/'),fetchLocationTile(p,'GFS',base+'generated-native-gfs-de/')]))},1800);
+ setTimeout(()=>{if(same())Promise.allSettled(regional.flatMap(model=>[fetchLocationTile(p,model,hourly(model)+'anchor/'),fetchLocationTile(p,model,base+'generated-native-'+realModelFiles[model]+'/')]))},4000);
+ setTimeout(()=>{if(same())Promise.allSettled(['AIFS','AIFS-ENS Control'].map(model=>fetchLocationTile(p,model,base+'generated-native-'+realModelFiles[model]+'/')))},6500);
 }
 function chooseLocationModel(t,p,preferFuture=false,models=forecastPriority){
  if(!p)return null;
@@ -1842,7 +1856,20 @@ async function fetchRadarPoints(){
 }
 // Quantitative RV forecasts: each value is a separate five-minute amount,
 // not a cumulative total or a radar image colour. Missing is not zero.
-let radarNowcastData=null,radarNowcastRequest=null;
+let radarNowcastData=null,radarNowcastRequest=null,nowcastWorker=null,nowcastMessageId=0,nowcastPointKey='';
+const nowcastMessages=new Map(),nowcastMapFrames=new Map(),nowcastFramePending=new Map();
+function workerNowcast(type,details){
+ if(typeof Worker!=='function')return Promise.resolve(null);
+ try{
+  if(!nowcastWorker){
+   nowcastWorker=new Worker('assets/nowcast-worker.js?v=20261121');
+   nowcastWorker.onmessage=({data})=>{const entry=nowcastMessages.get(data.id);if(entry){nowcastMessages.delete(data.id);clearTimeout(entry.timer);entry.resolve(data.result)}};
+   nowcastWorker.onerror=()=>{nowcastWorker?.terminate();nowcastWorker=null;for(const e of nowcastMessages.values()){clearTimeout(e.timer);e.resolve(null)}nowcastMessages.clear()};
+  }
+  const id=++nowcastMessageId,now=Date.now(),urls=[dataRoot.replace('/main/data/','/radar-nowcast-data/')+'radar-nowcast.json.gz?t='+Math.floor(now/300000),new URL('data/radar-nowcast.json.gz',document.baseURI).href];
+  return new Promise(resolve=>{const timer=setTimeout(()=>{nowcastMessages.delete(id);resolve(null)},65000);nowcastMessages.set(id,{resolve,timer});try{nowcastWorker.postMessage({id,type,now,urls,...details})}catch{clearTimeout(timer);nowcastMessages.delete(id);resolve(null)}});
+ }catch{return Promise.resolve(null)}
+}
 function decodeRadarNowcast(d){
  const g=d?.grid;if(d?.schema!==1||d.product!=='RV'||d.intervalMinutes!==5||!Number.isFinite(Date.parse(d.time))||!g||!Number.isInteger(g.nx)||!Number.isInteger(g.ny)||g.nx<2||g.ny<2||g.nx*g.ny>3000000||g.scale!==.01||g.missing!==-32768||!Number.isFinite(g.west)||!Number.isFinite(g.south)||!(g.step>0))throw Error('Invalid RV grid');
  const len=4*Math.ceil(g.nx*g.ny*2/3);for(let h=5;h<=120;h+=5)if(typeof d.frames?.[h]!=='string'||d.frames[h].length!==len)throw Error('Incomplete RV forecast');return d;
@@ -1854,12 +1881,24 @@ function radarForecastRows(d,point,now){
 }
 async function fetchRadarNowcast(){
  if(radarNowcastRequest)return radarNowcastRequest;
- radarNowcastRequest=(async()=>{for(const url of [dataRoot.replace('/main/data/','/radar-nowcast-data/')+'radar-nowcast.json.gz?t='+Math.floor(Date.now()/300000),'data/radar-nowcast.json.gz'])try{
-  const c=new AbortController(),timer=setTimeout(()=>c.abort(),30000);let d;
-  try{const r=await fetch(url,{signal:c.signal,cache:'no-store',credentials:'omit'});if(!r.ok)continue;const raw=await r.arrayBuffer(),b=new Uint8Array(raw);d=decodeRadarNowcast(b[0]===31&&b[1]===139?await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('gzip'))).json():JSON.parse(new TextDecoder().decode(raw)))}finally{clearTimeout(timer)}
-  const age=Date.now()-Date.parse(d.time);if(age<0||age>25*60000)continue;
-  if(!radarNowcastData||Date.parse(d.time)>Date.parse(radarNowcastData.time)){radarNowcastData=d;if(activePage==='weather')renderWeather();refreshOwnRadarViews()}return;
- }catch{}})();try{await radarNowcastRequest}finally{radarNowcastRequest=null}
+ const point=homeLocationPoint(location);if(!point)return;
+ const key=pointKey(point);nowcastPointKey=key;
+ radarNowcastRequest=workerNowcast('point',{point}).then(d=>{
+  if(pointKey(homeLocationPoint(location))!==key)return;
+  if(d&&(!radarNowcastData||Date.parse(d.time)>Date.parse(radarNowcastData.time)||d.grid.west!==radarNowcastData.grid.west||d.grid.south!==radarNowcastData.grid.south)){
+   radarNowcastData=d;refreshPointUI();refreshOwnRadarViews()
+  }
+ }).finally(()=>{radarNowcastRequest=null;if(pointKey(homeLocationPoint(location))!==key)fetchRadarNowcast()});
+ return radarNowcastRequest;
+}
+function fetchNowcastMapFrame(date){
+ const time=date.getTime();if(!Number.isFinite(time)||time<=radarBaseTime()||time>Date.now()+120*60000){fetchBrightRadarFrame(date);return;}
+ if(nowcastFramePending.has(time))return nowcastFramePending.get(time);
+ if(nowcastFramePending.size>=2)return;
+ const task=workerNowcast('frame',{time}).then(d=>{
+  if(d){nowcastMapFrames.set(time,d);while(nowcastMapFrames.size>3)nowcastMapFrames.delete(nowcastMapFrames.keys().next().value);refreshOwnRadarViews()}
+  else fetchBrightRadarFrame(date);
+ }).finally(()=>nowcastFramePending.delete(time));nowcastFramePending.set(time,task);return task;
 }
 function parameterAt(id,point,time,preferred,interval=0){
  const frames=[preferred,...forecastPriority.map(model=>chooseLocationModel(time,point,false,[model]))].filter(Boolean);
@@ -2711,7 +2750,7 @@ function radarPhaseModels(at){
   const ready=ids.filter(id=>d.nativeMap?d.decoded.has(hour+'/'+id):typeof d.frames[hour]?.[id]==='string');
   if(!ready.includes('temp2')&&!ready.includes('ww')&&!ready.includes('ptype'))continue;
   const key=[d.model,d.file||'',d.run,d.generated,hour,ready.join(',')].join('/');let cells=radarModelCellCache.get(key);if(!cells){cells=new Uint8Array(d.grid.nx*d.grid.ny);radarModelCellCache.set(key,cells);while(radarModelCellCache.size>8)radarModelCellCache.delete(radarModelCellCache.keys().next().value)}
-  out.push({d,hour,time,key,cells});break;
+  out.push({d,hour,time,key,cells,fieldValues:d.nativeMap?Object.fromEntries(ready.map(id=>[id,d.decoded.get(hour+'/'+id)])):null});break;
   }
  }
  if(!out.length){fetchNativeMapModel('IFS',false,true);fetchNativeMapModel('GFS',false,false);}
@@ -2721,7 +2760,12 @@ function radarModelPhase(models,lon,lat){
  for(const m of models||[]){const g=m.d.grid,x=Math.round((lon-g.west)/g.step),y=Math.round((lat-g.south)/g.step);
   if(x<0||y<0||x>=g.nx||y>=g.ny)continue;
   const n=y*g.nx+x;
-  if(!m.cells[n]){const get=id=>realModelValue(m.d,{id},lon,lat,m.hour);m.cells[n]=phaseCodeFromModel(get('ww'),get('ptype'),get('temp2'),get('dew'),get('rh2'),true)||1}
+  if(!m.cells[n]){
+   // These are five scalar fields at the same cell. Avoid recalculating
+   // coordinates and running general derived-parameter logic five times.
+   const get=id=>{const d=m.d;if(!d.nativeMap)return realModelValue(d,{id},lon,lat,m.hour);const v=m.fieldValues?.[id]?.[n],scale=id==='ww'?1:d.scales?.[id]??g.scale;return v===undefined||v===g.missing||!(scale>0)?NaN:v*scale};
+   m.cells[n]=phaseCodeFromModel(get('ww'),get('ptype'),get('temp2'),get('dew'),get('rh2'),true)||1
+  }
   if(m.cells[n]>1)return m.cells[n];
  }return 1;
 }
@@ -2767,7 +2811,8 @@ function ownRadarObservation(){
 function ownRadarFrame(date,latest=false){
  const obs=ownRadarObservation();if(obs&&(latest||obs.time===date.getTime()))return ownRadarWithModels(obs);
  const t=date.getTime(),rv=typeof radarNowcastData!=='undefined'?radarNowcastData:null;
- if(ownRadarFresh(rv,25)&&t>radarBaseTime()){
+ if(typeof nowcastMapFrames!=='undefined'&&nowcastMapFrames.has(t)){const f=nowcastMapFrames.get(t),base=Number(f.key.split('/')[1]);if(Date.now()-base<=25*60000)return ownRadarWithModels(f)}
+ if(!rv?.pointOnly&&ownRadarFresh(rv,25)&&t>radarBaseTime()){
   const base=Date.parse(rv.time),lead=(t-base)/60000,amount=rv.frames?.[lead];
   if(lead>=5&&lead<=120&&typeof amount==='string')return ownRadarWithModels({time:t,grid:rv.grid,amount,source:'RV · Prognose',forecast:true,key:'fc/'+base+'/'+lead});
  }
@@ -2796,8 +2841,12 @@ function drawOwnRadarSymbols(ctx,b,frame,mode='radar'){
   count++;
  }ctx.restore();return count;
 }
+let radarRasterJob=null;
 function ownRadarRaster(frame,mode='radar'){
- const cacheKey=mode==='radar'?frame.key:frame.key+'/'+mode;let cached=ownRadarCache.get(cacheKey);if(cached){ownRadarCache.delete(cacheKey);ownRadarCache.set(cacheKey,cached);return cached.canvas}
+ const cacheKey=mode==='radar'?frame.key:frame.key+'/'+mode;let cached=ownRadarCache.get(cacheKey);if(cached){if(radarRasterJob?.key!==cacheKey)radarRasterJob=null;ownRadarCache.delete(cacheKey);ownRadarCache.set(cacheKey,cached);return cached.canvas}
+ if(radarRasterJob?.key===cacheKey)return null;
+ // Only one large raster may be in flight. Changing layer/scan supersedes it.
+ radarRasterJob=null;
  const g=frame.grid,n=g.nx*g.ny,c=document.createElement('canvas');c.width=g.nx;c.height=g.ny;
  const ctx=c.getContext('2d');if(!ctx)return null;
  const im=ctx.createImageData(g.nx,g.ny),pixels=new Uint32Array(im.data.buffer);
@@ -2806,7 +2855,7 @@ function ownRadarRaster(frame,mode='radar'){
  const amount=frame.amount?atob(frame.amount):null,classes=frame.classes?atob(frame.classes):null;
  if((amount&&amount.length!==n*2)||(classes&&classes.length!==n))return null;
  // Packets are south-to-north; canvas rows are north-to-south.
- for(let y=0;y<g.ny;y++){let i=y*g.nx,out=(g.ny-1-y)*g.nx;for(let x=0;x<g.nx;x++,i++,out++){
+ const paintRows=(start,end)=>{for(let y=start;y<end;y++){let i=y*g.nx,out=(g.ny-1-y)*g.nx;for(let x=0;x<g.nx;x++,i++,out++){
   const v=amount?(amount.charCodeAt(i*2)|(amount.charCodeAt(i*2+1)<<8))<<16>>16:-1;
   let code=classes?classes.charCodeAt(i):255;
   // If RY and the phase analysis are five minutes apart, type is only
@@ -2817,14 +2866,26 @@ function ownRadarRaster(frame,mode='radar'){
   if(mode==='snowfall'&&![6,7].includes(code))continue;
   const color=palette[code]||palette[1],tier=mode==='types'?2:v>0?ownRadarTier(v*g.scale*(frame.rateFactor??12)):0;
   pixels[out]=color[tier];
- }}
- ctx.putImageData(im,0,0);
- ownRadarCache.set(cacheKey,{canvas:c,frame:{...frame}});while(ownRadarCache.size>4)ownRadarCache.delete(ownRadarCache.keys().next().value);
+ }}};
+ const finish=()=>{ctx.putImageData(im,0,0);
+ ownRadarCache.set(cacheKey,{canvas:c,frame:{...frame}});while(ownRadarCache.size>4)ownRadarCache.delete(ownRadarCache.keys().next().value);};
+ // Preserve every native grid cell, but yield to scroll, taps and map gestures.
+ // Tiny grids remain synchronous for inexpensive previews and unit tests.
+ if(n>65536&&typeof setTimeout==='function'&&typeof performance!=='undefined'){
+  const job={key:cacheKey,row:0};radarRasterJob=job;
+  const step=()=>{if(radarRasterJob!==job)return;
+   if(document.hidden||(typeof activePage!=='undefined'&&activePage!=='map'&&(activePage!=='weather'||!homeMapsVisible()))){radarRasterJob=null;return;}
+   const start=performance.now();do{paintRows(job.row,++job.row)}while(job.row<g.ny&&performance.now()-start<7);
+   if(job.row<g.ny){setTimeout(step,0);return;}
+   finish();radarRasterJob=null;refreshOwnRadarViews();
+  };setTimeout(step,0);return null;
+ }
+ paintRows(0,g.ny);finish();
  return c;
 }
 function refreshOwnRadarViews(){
  radarRevision++;if(activePage==='map')scheduleMap();
- if(activePage==='weather'){const c=el('home-map-radar');if(c){const b=c.getBoundingClientRect();if(b.bottom>=0&&b.top<innerHeight+180){const p=homeLocationPoint(location);if(p)renderOwnHomeRadar(p)}}}
+ if(activePage==='weather')scheduleHomeMaps();
 }
 function ownRadarSource(frame){return frame?'Eigenes Radar · '+frame.source:'Radarquelle wird geladen'}
 function ownRadarDescription(frame){return (frame?.rateFactor===1?'Momentanrate · ':frame?.forecast?'Radar-Nowcast · ':'')+(frame?.classes?'HymecNG · Niederschlagsart'+(frame.amount?' + Intensität':' · keine Intensität')+(frame.phaseTime!==frame.time?' · max. 5 Min. Versatz':''):'Radarintensität')+(frame?.models?.length?' · fehlende Phase aus '+[...new Set(frame.models.map(m=>m.d.model))].join(' / ')+' geschätzt':frame?.classes?'':' · Art unbekannt')}
@@ -2832,12 +2893,12 @@ function ownRadarDescription(frame){return (frame?.rateFactor===1?'Momentanrate 
 function drawRealRadar(ctx,b,date,onChange=scheduleMap,allowOlder=false,mode='radar'){
  const frame=ownRadarFrame(date,allowOlder);
  if(frame)try{const img=ownRadarRaster(frame,mode);if(img){const g=frame.grid,[x,y]=xy(g.west-g.step/2,g.south+(g.ny-.5)*g.step,b),[right,bottom]=xy(g.west+(g.nx-.5)*g.step,g.south-g.step/2,b),smooth=ctx.imageSmoothingEnabled;ctx.imageSmoothingEnabled=false;ctx.drawImage(img,x,y,right-x,bottom-y);ctx.imageSmoothingEnabled=smooth;return 'ready'}}catch{}
- if(typeof fetch==='function'){if(allowOlder){fetchOperaRadar();if(!ownRadarFresh(operaRadarData,20))fetchBrightRadar()}else fetchBrightRadarFrame(date)}
+ if(!frame&&typeof fetch==='function'){if(allowOlder){fetchOperaRadar();if(!ownRadarFresh(operaRadarData,20))fetchBrightRadar()}else fetchNowcastMapFrame(date)}
  return 'loading';
 }
 function prefetchNextRadar(date){
  if(document.hidden||navigator.connection?.saveData||liveMinute>=90)return;
- const next=new Date(date.getTime()+300000);if(!ownRadarFrame(next)&&!brightRadarPending.size)fetchBrightRadarFrame(next);
+ const next=new Date(date.getTime()+300000);if(!ownRadarFrame(next)&&!brightRadarPending.size)fetchNowcastMapFrame(next);
 }
 function drawRealLiveField(ctx,b,fast){
  if(liveAreaIds[liveLayer]&&!(['radar','types','snowfall'].includes(liveLayer)&&!liveHourlyMode()))prepareLiveArea(mapRegion==='Deutschland');
@@ -2858,7 +2919,7 @@ function realLiveLabels(){
  const info=realLiveInfo(),valid=Number.isFinite(info.date.getTime());
  document.querySelector('.live-map-note').textContent='Reale DWD- und EUMETSAT-Beobachtungen, separat gekennzeichnete Modellprognosen. Zeitstempel und Datenverfügbarkeit je Produkt.';
  if(info.image){const state=liveImageCache.get(liveLayer)?.state,status=!info.available?(liveImageryRequest?'Bild wird geladen …':'Kein aktuelles Bild verfügbar'):state==='ready'?'Beobachtung':state==='error'?'Bild konnte nicht geladen werden':'Bild wird geladen …';el('map-layer-title').textContent=liveLayers[liveLayer].label;el('map-model-badge').textContent=status;el('map-overlay-model').textContent=info.source;el('map-overlay-data').textContent=status;el('map-data-notice').textContent=status;el('map-valid').textContent=valid?'Messzeit: '+timeText(info.date):'Keine gültige Datenzeit';el('map-view-description').textContent=info.source;el('map-interval').textContent=liveLayer==='satellite'?'GeoColour: Wolkenbild (Tag / Nacht), keine Radarreflektivität.':'DWD DMAX: maximales Radarecho in dBZ in der vertikalen Luftsäule, keine Niederschlagsrate.';el('map-time-label').textContent='Letzte Beobachtung';return}
- const own=info.radar&&valid?ownRadarFrame(info.date,liveMinute===0):null,imageState=own?'ready':undefined;
+ const own=info.radar&&valid?ownRadarFrame(info.date,liveMinute===0):null,imageState=own&&ownRadarCache.has(liveLayer==='radar'?own.key:own.key+'/'+liveLayer)?'ready':undefined;
  const status=!info.available?(nativeMapLoading.size&&liveAreaIds[liveLayer]?'Modellkarte lädt …':'Keine Daten'):info.radar?(imageState==='ready'?(own?'Eigenes Radar':'DWD · Originalbild'):imageState==='error'?'Radar nicht erreichbar':'Radar wird geladen …'):info.stations?'DWD · Messpunkte':(info.model?.d.nativeMap&&!nativeFieldsReady(info.model.d,fields[liveAreaIds[liveLayer]],info.model.hour)?'Originaldaten werden geladen':info.model?modelProvider(info.model.d.model)+' · Modell':'Keine Daten');
  el('map-layer-title').textContent=liveLayer==='temperature'?'Temperatur · '+(info.stations?'Messpunkte':'Modell'):liveLayer==='wind'?'Wind · '+(info.stations?'Messpunkte':'Modell'):info.radar?(liveLayer==='types'?'Niederschlagsart':liveLayer==='snowfall'?'Schneefallradar':'Niederschlagsradar')+' · '+(own?'eigene Darstellung':'RV'):liveLayer==='radar'?'Niederschlagsrate · Modell':liveLayers[liveLayer].label;
  el('map-model-badge').textContent=status;el('map-overlay-model').textContent=info.radar?ownRadarSource(own):info.source;el('map-overlay-data').textContent=status;
@@ -3225,14 +3286,14 @@ function drawMap(fast=false){
  if(mapSnapshot.width!==b.w)mapSnapshot.width=b.w;if(mapSnapshot.height!==b.h)mapSnapshot.height=b.h;
  const snap=mapSnapshot.getContext('2d');snap.clearRect(0,0,b.w,b.h);snap.drawImage(mapCanvas,0,0);snapshotBounds=b;snapshotKey=mapContentKey();
 }
-// Reproject the last rendered map during a gesture; regenerate an inexpensive
-// preview only when movement exposes new terrain or magnifies it excessively.
+// During a gesture only reproject the previous image. Newly exposed regions
+// are filled after the gesture, instead of rebuilding native grids per touch.
 function drawMapGesture(){
  const b=bounds(),s=snapshotBounds,ctx=mapCanvas.getContext('2d');
  if(s&&snapshotKey===mapContentKey()&&b.w===s.w&&b.h===s.h){
   const [x,y]=xy(s.west,s.north,b),[right,bottom]=xy(s.east,s.south,b),w=right-x,h=bottom-y;
-  if(w<=b.w*1.35&&h<=b.h*1.35&&x<=.01&&y<=.01&&right>=b.w-.01&&bottom>=b.h-.01){
-   ctx.clearRect(0,0,b.w,b.h);ctx.imageSmoothingEnabled=false;ctx.drawImage(mapSnapshot,x,y,w,h);mapView=b;return;
+  if(w>0&&h>0){
+   ctx.fillStyle='#8393a2';ctx.fillRect(0,0,b.w,b.h);ctx.imageSmoothingEnabled=false;ctx.drawImage(mapSnapshot,x,y,w,h);mapView=b;return;
   }
  }
  drawMap(true);
@@ -3359,7 +3420,7 @@ bindFullMap();
 function stepMap(direction,wrap=false){if(realForecastMap()){syncModelTimeline();const i=mapFutureHours.indexOf(mapHour),max=mapFutureHours.length-1;if(i<0)return;const next=i+direction;selectFutureMapIndex(wrap&&next>max?0:clamp(next,0,max));scheduleMap();return}const slider=el('map-time'),step=+slider.step||1,min=+slider.min,max=+slider.max;if(mapSource==='live'&&liveHourlyMode()){let hour=liveTempHour+direction;if(hour<0&&liveTempDay>0){liveTempDay--;hour=23}else if(hour>23&&liveTempDay<2){liveTempDay++;hour=0}else if(wrap&&hour>23){liveTempDay=0;hour=0}liveTempHour=clamp(hour,0,23)}else{const value=(mapSource==='live'?liveMinute:mapHour)+direction*step,next=wrap&&value>max?min:clamp(value,min,max);if(mapSource==='live')liveMinute=next;else mapHour=next;slider.value=next}scheduleMap()}
 el('map-back').addEventListener('click',()=>{stopPlay();stepMap(-1)});el('map-next').addEventListener('click',()=>{stopPlay();stepMap(1)});
 el('map-time').addEventListener('input',e=>{stopPlay();const value=+e.target.value;if(realForecastMap())selectFutureMapIndex(value);else if(mapSource==='live'){if(liveHourlyMode())liveTempHour=value;else liveMinute=value}else mapHour=value;scheduleMap()});
-el('map-play').addEventListener('click',()=>{if(mapTimer!==null){stopPlay();return}el('map-play').textContent='Ⅱ';el('map-play').setAttribute('aria-label','Wiedergabe pausieren');mapTimer=setInterval(()=>{if(document.hidden){stopPlay();return}if(mapSource==='live'&&realLiveEnabled&&liveLayer==='radar'&&!liveHourlyMode()){if(!ownRadarFrame(realLiveTime(),liveMinute===0)){fetchBrightRadarFrame(realLiveTime());return;}}const d=realData();if(mapSource==='model'&&d?.nativeMap&&!nativeFieldsReady(d,fields[mapLayer],mapHour)&&mapFieldRequirements(d,fields[mapLayer],mapHour).some(([h,k])=>nativeFieldLoading.has(d.file+'/'+d.generated+'/'+h+'/'+k)))return;stepMap(1,true)},750)});
+el('map-play').addEventListener('click',()=>{if(mapTimer!==null){stopPlay();return}el('map-play').textContent='Ⅱ';el('map-play').setAttribute('aria-label','Wiedergabe pausieren');mapTimer=setInterval(()=>{if(document.hidden){stopPlay();return}if(mapSource==='live'&&realLiveEnabled&&['radar','types','snowfall'].includes(liveLayer)&&!liveHourlyMode()){if(!ownRadarFrame(realLiveTime(),liveMinute===0)){fetchNowcastMapFrame(realLiveTime());return;}if(radarRasterJob)return;}const d=realData();if(mapSource==='model'&&d?.nativeMap&&!nativeFieldsReady(d,fields[mapLayer],mapHour)&&mapFieldRequirements(d,fields[mapLayer],mapHour).some(([h,k])=>nativeFieldLoading.has(d.file+'/'+d.generated+'/'+h+'/'+k)))return;stepMap(1,true)},750)});
 // Re-evaluate at the civil hour boundary even if the user leaves the map open.
 // Returning from a suspended mobile tab must also immediately discard old times.
 let modelClockTimer=null;
