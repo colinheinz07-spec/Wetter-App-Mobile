@@ -73,6 +73,12 @@ for(let tier=1;tier<=5;tier++){
  assert.equal(occurrences(rain,'wx-drop'),tier);assert.equal(occurrences(rain,'wx-flake'),0);
  assert.equal(occurrences(snow,'wx-flake'),tier);assert.equal(occurrences(snow,'wx-drop'),0);
 }
+const loneFlake=render('20_schnee_1').match(/<g class="wx-flake"[^>]*><path d="([^"]+)"[^>]*\/><path d="([^"]+)"/);
+assert.ok(loneFlake,'Snow crystal must have separate arms and forks');
+assert.equal((loneFlake[1].match(/M/g)||[]).length,6,'Snow crystal must have six arms');
+assert.equal((loneFlake[2].match(/M/g)||[]).length,12,'Snow crystal must have twelve branches');
+const endpoints=[...loneFlake[1].matchAll(/L([\d.]+) ([\d.]+)/g)].map(m=>Number(m[2]));
+assert.ok(Math.max(...endpoints)-Math.min(...endpoints)>=34,'Single flake must be legible in compact tiles');
 for(let tier=1;tier<=3;tier++){
  const mixed=render((27+tier)+'_schneeregen_'+tier);
  assert.equal(occurrences(mixed,'wx-drop'),tier);assert.equal(occurrences(mixed,'wx-flake'),tier);
@@ -94,6 +100,7 @@ const luminance=hex=>hex.slice(1).match(/../g).map(x=>parseInt(x,16)/255).map(x=
 const contrast=(a,b)=>(Math.max(luminance(a),luminance(b))+.05)/(Math.min(luminance(a),luminance(b))+.05);
 for(const [index,palette] of palettes.entries())for(const [name,color] of Object.entries(palette))if(/^--wx-(rain-\d|snow-\d|ice)$/.test(name)){
  for(const background of index?['#ffffff','#b5deef']:['#14283e','#223f59'])assert.ok(contrast(color,background)>=3,'Low symbol contrast '+name+' '+background);
+ if(name.startsWith('--wx-snow-'))assert.ok(parseInt(color.slice(5,7),16)>parseInt(color.slice(1,3),16),'Snow crystals should use ice-blue tones');
 }
 console.log('PASS: full app JS, all 66 weather glyphs, light/dark CSS and contrast, core weather modules, metrics, size '+(size/1e6).toFixed(2)+' MB');
 require('./test-forecast-period-details.cjs');

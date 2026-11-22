@@ -80,20 +80,21 @@
  }
  const moon=small=>`<path fill="var(--wx-moon)" stroke="var(--wx-sun-edge)" stroke-width="${small?1.6:2.7}" transform="translate(${small?'58 4':'23 20'}) scale(${small?1.35:2.5})" d="M24 17A13 13 0 1 1 12 3A11 11 0 0 0 24 17Z"/>`;
  // A closed, upright teardrop and a six-armed crystal use separate silhouettes
- // as well as saturated blue and magenta. No blur/whole-image color filter.
+ // as well as distinct rain-blue and ice-blue tones. No whole-image filters.
  function drop(x,y,r,grade){
   const d=`M${x} ${y-r} C${x-r*.48} ${y-r*.24} ${x-r*.7} ${y+r*.1} ${x-r*.7} ${y+r*.38} A${r*.7} ${r*.7} 0 0 0 ${x+r*.7} ${y+r*.38} C${x+r*.7} ${y+r*.1} ${x+r*.48} ${y-r*.24} ${x} ${y-r} Z`;
   return `<path class="wx-drop" fill="var(--wx-rain-${grade})" d="${d}"/>`;
  }
  function snow(x,y,r,grade){
-  // Three axes plus branching tips. Thick enough for a 36 px day icon.
+  // Six open arms with outward-facing forks, readable at small phone sizes.
   const n=v=>v.toFixed(2),axes=[],branches=[];
   for(let i=0;i<6;i++){
    const a=i*Math.PI/3-Math.PI/2,u=Math.cos(a),v=Math.sin(a),p=-v,q=u;
    axes.push(`M${n(x)} ${n(y)}L${n(x+u*r)} ${n(y+v*r)}`);
-   for(const sign of [-1,1])branches.push(`M${n(x+u*r*.78)} ${n(y+v*r*.78)}L${n(x+u*r*.40+sign*p*r*.35)} ${n(y+v*r*.40+sign*q*r*.35)}`);
+   for(const sign of [-1,1])branches.push(`M${n(x+u*r*.48)} ${n(y+v*r*.48)}L${n(x+u*r*.75+sign*p*r*.30)} ${n(y+v*r*.75+sign*q*r*.30)}`);
   }
-  return `<g class="wx-flake" stroke="var(--wx-snow-${grade})" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="${axes.join(' ')}" stroke-width="${r>=10?3.6:2.8}"/><path d="${branches.join(' ')}" stroke-width="${r>=10?2.2:1.7}"/></g>`;
+  const stroke=r>=14?2.8:r>=10?2.3:1.8;
+  return `<g class="wx-flake" stroke="var(--wx-snow-${grade})" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="${axes.join(' ')}" stroke-width="${stroke}"/><path d="${branches.join(' ')}" stroke-width="${stroke*.85}"/></g>`;
  }
  const bolt=x=>`<path class="wx-bolt" fill="var(--wx-bolt)" stroke="var(--wx-sun-edge)" stroke-width="2.1" stroke-linejoin="round" transform="translate(${x-50} 0)" d="M48 56H65L54 71H66L37 94L46 76H34Z"/>`;
  const windsock=standalone=>`<g class="wx-windsock" transform="${standalone?'translate(18 12) scale(2.2)':'translate(70 0) scale(1.1)'}"><path d="M4 8V34" stroke="var(--wx-fog)" stroke-width="2.6" stroke-linecap="round"/><path d="M5 9L25 14L20 23L5 18Z" fill="var(--wx-wind)" stroke="var(--wx-wind-edge)" stroke-width="1.2"/><path d="M11 11L16 12L12 20L8 19ZM20 13L24 14L20 22L16 21Z" fill="#fff"/></g>`;
@@ -118,9 +119,10 @@
   if(ice){positions[0]=[25,65];positions[1]=[75,65]}
   if(key==='66_gefrierender_nebel')positions[0]=[86,66];
   const r=fog?7.4:twoRows?8:thunder?8.8:count<=2?11.5:count===3?10:8.7;
+  const flakeR=fog?r:twoRows?8.2:thunder?r:count===1?18:count===2?15:count===3?12:9.2;
   kinds.forEach((kind,i)=>{
    const [x,cy]=positions[i];
-   out+=kind==='rain'?drop(x,cy,r,rainGrade):snow(x,cy,r,Math.max(1,Math.min(5,grade)));
+   out+=kind==='rain'?drop(x,cy,r,rainGrade):snow(x,cy,flakeR,Math.max(1,Math.min(5,grade)));
   });
   if(thunder)out+=bolt(count?25:50);
   if(ice)out+='<g class="wx-ice-warning"><path d="M50 66L68 96H32Z" fill="#ffca47" stroke="#8d4100" stroke-width="2.8" stroke-linejoin="round"/><path d="M50 78V86" stroke="#392100" stroke-width="4.5" stroke-linecap="round"/><circle cx="50" cy="91" r="2.5" fill="#392100"/></g>';
