@@ -26,7 +26,23 @@ for(const path of (process.argv.length>2?process.argv.slice(2):['assets/app.js']
  assert.equal(ev('ownRadarPixel(frame,[8,51]).code'),6);
  assert.equal(ev('ownRadarPixel(frame,[9,51]).code'),0);
  assert.equal(ev('ownRadarPixel({...frame,classes:null},[8,50]).estimated'),true);
+ ctx.wet=Buffer.from([120,0,250,0,244,1,0,128]).toString('base64');
+ ctx.dry=Buffer.from([0,0,0,128,200,0,0,128]).toString('base64');
+ ev('let operaRadarData={time:new Date(time).toISOString(),grid:g,amount:dry},swissRadarData={time:new Date(time).toISOString(),grid:g,amount:wet};');
+ assert.equal(ev('pointRadarAt([8,50]).rate'),1.2);
+ assert.equal(ev('pointRadarAt([9,50]).rate'),2.5);
+ assert.equal(ev('pointRadarAt([8,51]).rate'),2);
+ assert.equal(ev('pointRadarAt([9,51])'),null);
+ assert.equal(ev('ownRadarPixel(ownRadarObservation(),[8,50]).source'),'MeteoSwiss PRECIP');
+ assert.equal(ev('ownRadarPixel(ownRadarObservation(),[9,51])'),null);
+ assert.ok(ev('ownRadarRaster(ownRadarObservation())'));
+ ev('swissRadarData.time=new Date(time-6*60000).toISOString()');
+ assert.equal(ev('pointRadarAt([8,50]).rate'),0);
+ assert.equal(ev('pointRadarAt([9,50]).rate'),2.5);
+ ev('swissRadarData.time=new Date(time-21*60000).toISOString()');
+ assert.equal(ev('pointRadarAt([9,50])'),null);
+ assert.equal(ev('pointRadarAt([8,50]).rate'),0);
  assert.ok(ev('ownRadarRaster(frame)'));
  assert.ok(!src.includes('function ensureRadarImage'));
- console.log(path+': phase, OPERA rate, model fallback, raster, no WMS: 12 checks PASS');
+ console.log(path+': phase, multi-source radar, model fallback, raster, freshness: PASS');
 }
