@@ -17,4 +17,21 @@ const ps=[{start:t-100,end:t+10700},{start:t+30000,end:t+40800},{start:t+90000,e
 assert.deepEqual(w.pickPeriods({periods:ps},t,'all'),ps.slice(0,2));
 assert.deepEqual(w.pickPeriods({periods:ps},t,'0-6'),ps.slice(0,1));
 assert.deepEqual(w.pickPeriods({periods:ps},t,'6-12'),ps.slice(1,2));
+require('../assets/basemap.js');require('../assets/geography.js');
+const geo=w.mapGeometry(global.WEATHER_BASEMAP,global.WEATHER_EXTRA_GEO);
+assert.ok(geo.outline.length>10000&&geo.states.length>10000,'Standalone Germany geometry is complete');
+for(const [width,height] of [[320,420],[390,420],[768,600]]){
+ const scale=Math.min(width/w.MAP_W,height/w.MAP_H),[x,y]=w.project(13.4,52.52);
+ const p=w.unproject(x*scale+(width-w.MAP_W*scale)/2,y*scale+(height-w.MAP_H*scale)/2,width,height);
+ assert.ok(Math.abs(p[0]-13.4)<1e-8&&Math.abs(p[1]-52.52)<1e-8,'Correct tap coordinates on letterboxed map');
+}
+assert.match(require('node:fs').readFileSync('assets/national-map.svg','utf8'),/viewBox="0 0 600 780"/);
+// Simulate a WebView without an initialized main app, canvas context,
+// ResizeObserver or a working fetch. The ground map must already exist.
+const vm=require('node:vm'),fs=require('node:fs'),elements=new Map();
+const el=id=>{if(!elements.has(id))elements.set(id,{innerHTML:'',textContent:'',classList:{contains:()=>false},querySelector:el,querySelectorAll:()=>[],addEventListener(){},setAttribute(){}});return elements.get(id)};
+const mobile=vm.createContext({document:{getElementById:el,documentElement:{dataset:{theme:'light'}}},setInterval(){},console,Date,AbortController,WEATHER_BASEMAP:global.WEATHER_BASEMAP,WEATHER_EXTRA_GEO:global.WEATHER_EXTRA_GEO});
+vm.runInContext(fs.readFileSync('assets/national-warnings.js','utf8'),mobile);
+assert.match(el('national-warning').innerHTML,/src="assets\/national-map.svg"/);
+assert.match(el('#nw-canvas').innerHTML,/<path d="M/,'Immediate independent SVG overlay before fetch');
 console.log('PASS: active / future / conditional, expiry, 24h horizon, polygon holes, time filtering and stale data');

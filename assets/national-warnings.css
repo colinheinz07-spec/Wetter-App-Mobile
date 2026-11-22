@@ -9,8 +9,11 @@
 .nw-controls label{font-size:11px;color:var(--muted);min-width:0;display:grid;gap:4px}
 .nw-controls label[hidden]{display:none}
 .nw-controls select{width:100%;min-height:40px;padding:8px;background:var(--surface2);color:var(--text);border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px}
-.nw-map{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--surface2)}
-#nw-canvas{display:block;width:100%;height:clamp(320px,108vw,600px);cursor:crosshair;touch-action:pan-y}
+.nw-map{position:relative;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--surface2);height:clamp(320px,108vw,600px);min-height:320px}
+.nw-map-base,#nw-canvas{display:block;position:absolute;inset:0;width:100%;height:100%}
+.nw-map-base{object-fit:contain;pointer-events:none}
+:root:not([data-theme=light]) .nw-map-base{filter:brightness(.68) saturate(.8)}
+#nw-canvas{cursor:crosshair;touch-action:pan-y;overflow:hidden}
 .nw-legend{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:11px;color:var(--muted)}
 .nw-legend span{display:flex;align-items:center;gap:5px}.nw-legend i{width:12px;height:12px;border-radius:3px;border:1px solid #0003}
 .nw-detail{border:1px solid var(--line);border-radius:13px;padding:12px;background:var(--surface2);display:grid;gap:8px;font-size:13px;line-height:1.45}
