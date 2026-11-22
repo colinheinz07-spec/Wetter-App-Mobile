@@ -69,7 +69,7 @@ const server=http.createServer((req,res)=>{
   assert.ok(!(await page.locator('.hero .temp').innerText()).includes('10'),'forecast temperature must not appear as current while the measured local analysis is pending');
   releaseAnalysis();
   await page.waitForFunction(()=>document.querySelector('.hero .temp')?.textContent.startsWith('-1'));
-  assert.match(await page.locator('.hero .metrics').innerText(),/Böen · Ortsanalyse[\s\S]*19,2[\s\S]*diagnostizierte Böe/);
+  assert.match(await page.locator('.hero .metrics').innerText(),/Böen · Modellgestützte Analyse[\s\S]*19 km\/h[\s\S]*diagnostizierte Böe/);
   assert.match(await page.locator('.hero .live-temp-source').innerText(),/ICON-D2-RUC.*Originalzelle/);
   assert.ok(!requests.some(s=>/api\.brightsky\.dev\/(sources|synop)/.test(s)),'must never query a nearby station');
   await page.waitForFunction(()=>[...document.querySelectorAll('.hour-scroll .hour strong')].some(e=>e.textContent.trim()==='10°'));
