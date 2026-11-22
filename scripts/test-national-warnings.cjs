@@ -49,8 +49,8 @@ assert.match(require('node:fs').readFileSync('assets/national-map.svg','utf8'),/
 // Simulate a WebView without an initialized main app, canvas context,
 // ResizeObserver or a working fetch. The ground map must already exist.
 const vm=require('node:vm'),fs=require('node:fs'),elements=new Map(),handlers=new Map();
-const el=id=>{if(!elements.has(id))elements.set(id,{innerHTML:'',textContent:'',classList:{contains:()=>false},querySelector:el,querySelectorAll:()=>[],addEventListener(e,fn){handlers.set(id+':'+e,fn)},setAttribute(k,v){this[k]=v},getBoundingClientRect:()=>({width:390,height:420,left:0,top:0}),style:{setProperty(){}}});return elements.get(id)};
-const mobile=vm.createContext({document:{getElementById:el,documentElement:{dataset:{theme:'light'}}},setInterval(){},console,Date,AbortController,WEATHER_BASEMAP:global.WEATHER_BASEMAP,WEATHER_EXTRA_GEO:global.WEATHER_EXTRA_GEO});
+const el=id=>{if(!elements.has(id))elements.set(id,{innerHTML:'',textContent:'',classList:{contains:()=>false},querySelector:el,querySelectorAll:s=>id==='national-warning'&&s==='[data-nw-stage]'?['active','upcoming','risk'].map(k=>Object.assign(el('tab-'+k),{dataset:{nwStage:k}})):[],addEventListener(e,fn){handlers.set(id+':'+e,fn)},setAttribute(k,v){this[k]=v},getBoundingClientRect:()=>({width:390,height:420,left:0,top:0}),style:{setProperty(){}}});return elements.get(id)};
+const mobile=vm.createContext({document:{getElementById:el,documentElement:{dataset:{theme:'light'}}},setInterval(){},setTimeout,clearTimeout,console,Date,AbortController,TextDecoder,atob,WEATHER_BASEMAP:global.WEATHER_BASEMAP,WEATHER_EXTRA_GEO:global.WEATHER_EXTRA_GEO});
 vm.runInContext(fs.readFileSync('assets/national-warnings.js','utf8'),mobile);
 assert.match(el('national-warning').innerHTML,/src="assets\/national-map.svg"/);
 assert.match(el('#nw-canvas').innerHTML,/<path d="M/,'Immediate independent SVG overlay before fetch');
@@ -61,4 +61,27 @@ const touch=(a,b)=>({touches:[{clientX:a,clientY:210},{clientX:b,clientY:210}],c
 handlers.get('#nw-canvas:touchstart')(touch(155,235));handlers.get('#nw-canvas:touchmove')(touch(115,275));assert.equal(zoomLabel.textContent,'2×');
 handlers.get('#nw-canvas:touchend')({touches:[]});const box=canvas.viewBox;handlers.get('#nw-canvas:touchstart')({touches:[{clientX:190,clientY:210}]});handlers.get('#nw-canvas:touchmove')({touches:[{clientX:220,clientY:240}],cancelable:true,preventDefault(){}});assert.notEqual(canvas.viewBox,box,'One-finger drag on zoomed map');
 handlers.get('#nw-canvas:touchend')({touches:[]});handlers.get('#nw-zoom-reset:click')();assert.equal(canvas.viewBox,'0 0 600 780');
-console.log('PASS: active / future / conditional, expiry, 24h horizon, polygon holes, time filtering and stale data');
+assert.equal(el('#nw-popup').hidden,true);
+assert.doesNotMatch(el('national-warning').innerHTML,/id="nw-list"/);
+// Inject independent sources and exercise the real refresh and map click code.
+(async()=>{
+ const now=Math.floor(Date.now()/1000),grid={west:5.5,south:47,step:.05,nx:193,ny:165};
+ const frost=Buffer.alloc(grid.nx*grid.ny),empty=Buffer.alloc(frost.length);frost[60*grid.nx+50]=12;
+ const layers=Object.fromEntries(['frost','wind','heat','fog','snow','freezing','ice','rain','storm'].map(k=>[k,(k==='frost'?frost:empty).toString('base64')]));
+ const model={schema:1,generated:now,grid,models:[],periods:[{start:now-300,end:now+10500,layers}]};
+ let cells=[{id:'test',point:[8,50],polygons:[[[7.98,49.98],[8.02,49.98],[8.02,50.02],[7.98,50.02]]],path:[],lightning:5,speedKmh:42,rainFlag:2,rainMm:22,rainMinutes:30}];
+ const urls=[];mobile.fetch=async url=>{urls.push(url);const d=url.includes('storm-tracks.json')?{schema:1,generated:now,observed:now-300,cells}:url.includes('national-risks.json.gz')?model:null;if(!d)throw Error('Unexpected request '+url);return {ok:true,arrayBuffer:async()=>Uint8Array.from(Buffer.from(JSON.stringify(d))).buffer}};
+ await handlers.get('#nw-refresh:click')();
+ assert.match(canvas.innerHTML,/data-storm-id="test"/);
+ // The earlier synthetic pinch suppresses subsequent clicks for 450 ms.
+ await new Promise(resolve=>setTimeout(resolve,500));
+ const tap=(kind,dataset)=>{const [x,y]=w.project(8,50),scale=Math.min(390/w.MAP_W,420/w.MAP_H);handlers.get('#nw-canvas:click')({clientX:x*scale+(390-w.MAP_W*scale)/2,clientY:y*scale+(420-w.MAP_H*scale)/2,target:{closest:s=>s===kind?{dataset}:null}})};
+ tap('[data-storm-id]',{stormId:'test'});assert.equal(el('#nw-popup').hidden,false);assert.match(el('#nw-detail').innerHTML,/42 km\/h/);
+ handlers.get('#nw-close:click')();assert.equal(el('#nw-popup').hidden,true);assert.equal(el('#nw-detail').innerHTML,'');
+ handlers.get('tab-upcoming:click')();assert.match(canvas.innerHTML,/data-warning-kind="frost"/);
+ tap('[data-warning-kind]',{warningLon:'8',warningLat:'50'});assert.match(el('#nw-detail').innerHTML,/Frost · L2/);
+ handlers.get('tab-active:click')();assert.equal(el('#nw-popup').hidden,true);
+ tap('[data-storm-id]',{stormId:'test'});cells=[];await handlers.get('#nw-refresh:click')();assert.doesNotMatch(canvas.innerHTML,/data-storm-id="test"/);assert.doesNotMatch(el('#nw-detail').innerHTML,/42 km\/h/);
+ assert.equal(urls.length,4);assert.ok(urls.every(url=>!url.includes('official')&&!url.includes('Warnungen_Gemeinden')));
+ console.log('PASS: warning map, zoom, tap-only detail, close, forecast markers, automatic storm removal and no official API');
+})().catch(e=>{console.error(e);process.exitCode=1});

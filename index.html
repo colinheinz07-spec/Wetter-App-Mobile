@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="assets/base.css?v=20261122-icons">
 
 <link rel="stylesheet" href="assets/mobile-design.css?v=20261122-new-snow">
-<link rel="stylesheet" href="assets/national-warnings.css?v=20261122-storm-tracking">
+<link rel="stylesheet" href="assets/national-warnings.css?v=20261122-map-info">
 </head>
 <body>
 <div class="wrap">
@@ -87,8 +87,7 @@
       <div class="page-title"><h2>Wetterwarnungen</h2><p>Deutschland · aktuelle Gefahren und kurzfristige Risiken</p></div>
       <div class="warning-detail">
         <section class="panel level-card" id="national-warning" aria-label="Deutschlandweite Warnlage"><p>Warnlage wird geladen …</p></section>
-        <div class="panel level-card" id="local-warning-list"><h2>Ortsbezogene Modellhinweise</h2><p>Prognosedaten werden geladen …</p></div>
-        <div class="panel level-card"><h2>Warnsystem</h2><div class="warning-levels"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div><p>Leicht · Markant · Unwetter · Extrem · Außergewöhnlich</p><p>Automatische meteorologische Basisstufen aus Colins Warnsystem (September 2026). Keine amtliche Warnung. Level 5 nur bei zusätzlicher Bestätigung einer außergewöhnlichen Lage. Impact- und Regionalbewertung erfordern zusätzliche Daten.</p></div>
+        <div id="local-warning-list" hidden aria-hidden="true"></div>
       </div>
     </section>
     <section id="page-expert" class="page" aria-label="Experten">
@@ -126,7 +125,7 @@
 <script src="assets/weather-icons.js?v=20261122-snow-crystals"></script>
 <script src="assets/app.js?v=20261122-amount-ranges"></script>
 <script src="assets/hazards.js" defer></script>
-<script src="assets/national-warnings.js?v=20261122-storm-tracking" defer></script>
+<script src="assets/national-warnings.js?v=20261122-map-info" defer></script>
 </body>
 </html>
 
