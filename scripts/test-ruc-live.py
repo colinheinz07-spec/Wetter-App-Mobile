@@ -22,7 +22,7 @@ lon=np.array([7.995,8.005,8.5,9.07]); lat=np.array([50.5,50.5,50.8,51.02])
 run='2026-11-22T10:00:00+00:00';gen='2026-11-22T10:40:00+00:00'
 gust={'run':'2026-11-22T09:00:00+00:00','valid':run,'intervalMinutes':60}
 with tempfile.TemporaryDirectory() as out:
-    manifest=m['build_snapshot'](out,lon,lat,fields,run,gen,gust)
+    manifest=m['build_snapshot'](out,lon,lat,fields,run,gen,gust,np.array([800,1000,1400,2000]))
     assert manifest['gridMapping']=='native-triangular-cells' and manifest['gust']==gust
     def unpack(key):
         with gzip.open(Path(out)/f'tile-{key}.json.gz','rt') as f: t=json.load(f)
@@ -31,4 +31,5 @@ with tempfile.TemporaryDirectory() as out:
     assert 799500 in l1 and 800500 in l1 and 799500 in l2 and 800500 in l2
     assert v1[l1.index(799500)]==-10 and v2[l2.index(800500)]==30
     assert t1['run']==run and t2['generated']==gen
+    assert manifest['terrainScale']==1 and np.frombuffer(base64.b64decode(t1['terrain']),dtype='<i2')[l1.index(799500)]==800
 print('PASS: native source cells, border halo, genuine zero, missing values, units and completed gust interval')

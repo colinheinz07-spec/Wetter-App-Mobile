@@ -75,7 +75,7 @@ def encode_field(name, a):
     return np.where(valid, np.rint(np.where(valid,a,0)*10), MISSING).astype('<i2')
 
 
-def build_snapshot(out, lon, lat, fields, run, generated, gust=None):
+def build_snapshot(out, lon, lat, fields, run, generated, gust=None, terrain=None):
     out = Path(out); out.mkdir(parents=True, exist_ok=True)
     if not CORE <= fields.keys() or ('gust' in fields) != (gust is not None):
         raise ValueError('Incomplete product')
@@ -84,6 +84,9 @@ def build_snapshot(out, lon, lat, fields, run, generated, gust=None):
     if not np.all(np.isfinite(lon)) or not np.all(np.isfinite(lat)) or np.any(np.abs(lon)>180) or np.any(np.abs(lat)>90):
         raise ValueError('Invalid coordinates')
     encoded = {k: encode_field(k,a) for k,a in fields.items()}
+    if terrain is not None:
+        if terrain.shape != lon.shape:raise ValueError('RUC terrain grid differs')
+        terrain=np.where(np.isfinite(terrain)&(terrain>=-500)&(terrain<=9000),np.rint(terrain),MISSING).astype('<i2')
     if any(not np.any(encoded[k] != MISSING) for k in CORE):
         raise ValueError('Empty required analysis field')
     # Bucket source centers by one-degree tile, then include nearby centers
@@ -104,6 +107,7 @@ def build_snapshot(out, lon, lat, fields, run, generated, gust=None):
         packet = dict(schema=1,run=run,generated=generated,key=key,count=len(ids),
                       lon=pack(np.rint(lon[ids]*100000),'<i4'),lat=pack(np.rint(lat[ids]*100000),'<i4'),
                       values={k:pack(a[ids],'<i2') for k,a in encoded.items()})
+        if terrain is not None:packet['terrain']=pack(terrain[ids],'<i2')
         with gzip.open(out/f'tile-{key}.json.gz','wt',compresslevel=5) as stream:
             json.dump(packet,stream,separators=(',',':'))
         tiles.append(key)
@@ -111,6 +115,7 @@ def build_snapshot(out, lon, lat, fields, run, generated, gust=None):
                     run=run,generated=generated,coordScale=.00001,scale=.1,missing=MISSING,tileStep=1,
                     tiles=tiles,fields=sorted(fields),source='DWD ICON-D2-RUC')
     if gust: manifest['gust'] = gust
+    if terrain is not None:manifest['terrainScale']=1
     (out/'index.json').write_text(json.dumps(manifest,separators=(',',':')))
     return manifest
 
@@ -144,7 +149,12 @@ def main():
                     if gi==identity and len(ga)==len(first) and np.any(np.isfinite(ga)):
                         fields['gust']=ga*3.6;gust=dict(run=stamp(gust_run),valid=at.isoformat(),intervalMinutes=hour*60);break
                 except (OSError,ValueError,RuntimeError) as e: print('No gust field:',gust_run,hour,e,flush=True)
-            manifest=build_snapshot(args.output,lon,lat,fields,at.isoformat(),dt.datetime.now(UTC).isoformat(),gust)
+            terrain=None
+            try:terrain=coords('HSURF',run,identity,len(first))
+            except (OSError,ValueError,RuntimeError) as e:print('No matching model elevation:',e,flush=True)
+            manifest=build_snapshot(args.output,lon,lat,fields,at.isoformat(),dt.datetime.now(UTC).isoformat(),gust,terrain)
+            i=np.argmin(((lon-10.2761)*np.cos(np.radians(47.4084)))**2+(lat-47.4084)**2)
+            print('Oberstdorf native analysis',at.isoformat(),'temperature',round(float(fields['temp2'][i]),2),'model elevation',round(float(terrain[i])) if terrain is not None else 'unavailable',flush=True)
             print(f'Published {len(manifest["tiles"])} native tiles for {at.isoformat()}',flush=True); return
         except (OSError,ValueError,RuntimeError) as e: print('Incomplete run',run,e,flush=True)
     raise RuntimeError('No complete fresh RUC surface analysis available')
