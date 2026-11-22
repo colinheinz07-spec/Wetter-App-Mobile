@@ -27,7 +27,7 @@ assert r.analyze(field(end,ww=71,rainTotal=31,temp2=-1),end)['rain'][0]==255
 assert r.analyze(field(end,ww=71,rainTotal=31,temp2=-1),end)['snow'][0]==1
 models=[dict(model='ICON-D2',run=0,step=.02,fields=field(end,temp2=-4)),dict(model='GFS',run=0,step=.25,fields=field(end,temp2=-2))]
 period=r.build(0,models,[end])['periods'][0]
-assert np.frombuffer(base64.b64decode(period['metrics']['frost']),dtype='<i2')[0]==-30
+assert np.frombuffer(base64.b64decode(period['metrics']['frost']),dtype='<i2')[0]==-40 # local highest-resolution model
 assert np.frombuffer(base64.b64decode(period['metrics']['wind']),dtype='<i2')[0]==-32768
 ends=list(range(10800,72*3600+1,10800))
 fields={**{(e,'temp2'):fill(-2) for e in ends[:12]},**{(e,'temp2'):fill(2) for e in ends[12:14]},**{(e,'temp2'):fill(-3) for e in ends[14:]}}
@@ -43,5 +43,18 @@ for i in range(5):
     rain_fields[(i*10800,'rainTotal')]=fill(i*8)
     rain_fields[(i*10800,'ww')]=fill(61)
 assert r.analyze(rain_fields,43200)['durationrain'][0]==1
+assert r.analyze(field(end,temp2=0),end)['frost'][0]==0
+snowfields=field(end,temp2=-2,ww=71,rainTotal=10,snowGspTotal=5,snowConTotal=1)
+snowfields.update(field(0,temp2=-2,rainTotal=0,snowGspTotal=0,snowConTotal=0))
+assert abs(r.fresh_snow_cm(snowfields,end)[0]-5.64)<.01
+assert r.ice_causes(f,end)[0]&1
+assert r.ice_causes(field(end,tground=-2,ww=71),end)[0]&2
+assert r.ice_causes(field(end,tground=-1,ww=66),end)[0]&4
+hourfields={(i*3600,'rainTotal'):fill(v) for i,v in enumerate([0,2,21,24])}
+assert r.peak_hour_rain(hourfields,end)[0]==19
+assert np.isnan(r.peak_hour_rain(field(end,rainTotal=24),end)[0])
+period=r.build(0,[dict(model='ICON-D2',run=0,step=.02,fields=snowfields)],[end])['periods'][0]
+assert period['metricVersion']==2
+assert np.frombuffer(base64.b64decode(period['metrics']['snow']),dtype='<i2')[0]==56
 print('PASS: independent model agreement, uncertain convective signal, missing inputs, phase and own thresholds')
 

@@ -15,7 +15,7 @@ import numpy as np
 ROOT='https://raw.githubusercontent.com/colinheinz07-spec/Wetter-App/generated-native-'
 GRID=dict(west=5.5,south=47.,step=.02,nx=481,ny=411)
 MODELS=(('ICON-D2','icon-d2-de',18),('IFS','ifs-de',24),('GFS','gfs-de',24))
-FIELDS=('temp2','gust','visibility','ww','ptype','rainTotal','tground','rh2','mlcape','mucape','mlcin','s06','orog','ship','stp')
+FIELDS=('temp2','gust','visibility','ww','ptype','rainTotal','tground','rh2','mlcape','mucape','mlcin','s06','orog','ship','stp','snowWaterTotal','snowGspTotal','snowConTotal')
 TYPES=('frost','wind','heat','fog','snow','freezing','ice','rain','durationrain','storm','stormwind','stormrain','hail','rotation')
 POTENTIAL={'ice','stormwind','stormrain','hail','rotation'}
 N=GRID['nx']*GRID['ny']
@@ -37,7 +37,8 @@ def load_model(name,branch,max_age,now,ends):
     m=read(root+'index.json');run=timestamp(m['run']);g=m['grid']
     if m['schema']!=2 or m['model']!=name or not 0<=now-run<=max_age*3600:raise ValueError('stale or invalid run')
     idx,valid=grid_indices(g); targets=set(ends)|{e-shift for e in ends for shift in (10800,21600,32400,43200)}
-    hours={h for h in m['hours'] if run+h*3600 in targets}
+    hourly_rain={e-shift for e in ends if e<=now+27*3600 for shift in (3600,7200)}
+    hours={h for h in m['hours'] if run+h*3600 in targets|hourly_rain}
     def load(pair):
         h,k=pair
         try:
@@ -49,7 +50,7 @@ def load_model(name,branch,max_age,now,ends):
             return (run+h*3600,k),arr
         except Exception as e:
             print(name,h,k,str(e)[:100],flush=True);return (run+h*3600,k),None
-    jobs=[(h,k) for h in hours for k in FIELDS if k in m['frames'][str(h)] and (run+h*3600 in ends or k in ('rainTotal','temp2','ww','ptype'))]
+    jobs=[(h,k) for h in hours for k in FIELDS if k in m['frames'][str(h)] and (run+h*3600 in ends or run+h*3600 in targets and k in ('rainTotal','temp2','ww','ptype','snowWaterTotal','snowGspTotal','snowConTotal') or run+h*3600 in hourly_rain and k=='rainTotal')]
     with ThreadPoolExecutor(max_workers=10) as pool:fields={k:v for k,v in pool.map(load,jobs) if v is not None}
     if not fields:raise ValueError('no valid fields')
     return dict(model=name,run=run,fields=fields,step=g['step'])
@@ -62,6 +63,49 @@ def levels(v,limits):
 
 def categorical(valid,signal,level=1):
     return np.where(valid,np.where(signal,level,0),255).astype(np.uint8)
+
+def field_value(fields,t,k):
+    return fields.get((t,k),np.full(N,np.nan,dtype=np.float32))
+
+def delta(fields,end,k,seconds=10800):
+    a=field_value(fields,end-seconds,k);b=field_value(fields,end,k)
+    return np.where((a>=0)&(b>=0)&(b-a>=-.05),np.maximum(0,b-a),np.nan)
+
+def fresh_snow_cm(fields,end):
+    # Actual snow water accumulation, not change in existing snow cover.
+    water=delta(fields,end,'snowWaterTotal')
+    components=delta(fields,end,'snowGspTotal')+delta(fields,end,'snowConTotal')
+    water=np.where(np.isfinite(water),water,components)
+    precip=delta(fields,end,'rainTotal')
+    ww=field_value(fields,end,'ww');pt=field_value(fields,end,'ptype')
+    mixed=np.isin(ww,[68,69,83,84])|np.isin(pt,[7,8])
+    pure=(np.isin(ww,[70,71,72,73,74,75,77,85,86])|np.isin(pt,[5,6]))&~mixed
+    fallback=np.where(precip==0,0,np.where(pure,precip,np.nan))
+    water=np.where(np.isfinite(water),water,fallback)
+    t0=field_value(fields,end-10800,'temp2');t1=field_value(fields,end,'temp2')
+    t=np.where(np.isfinite(t0)&np.isfinite(t1),(t0+t1)/2,np.where(np.isfinite(t1),t1,t0))
+    # Temperature-dependent fresh-snow ratio; same approximation as mobile forecast.
+    return np.where(water==0,0,water*np.clip(7-t*1.2,4,16)/10)
+
+def ice_causes(fields,end):
+    ground=field_value(fields,end,'tground');rh=field_value(fields,end,'rh2')
+    ww=field_value(fields,end,'ww');pt=field_value(fields,end,'ptype')
+    amount=delta(fields,end,'rainTotal');previous=delta(fields,end-10800,'rainTotal')
+    before_ww=field_value(fields,end-10800,'ww');before_pt=field_value(fields,end-10800,'ptype')
+    frozen=ground<=0
+    freeze=np.isin(ww,[56,57,66,67])|np.isin(pt,[3,12])
+    snow=np.isin(ww,[68,69,70,71,72,73,74,75,77,83,84,85,86])|np.isin(pt,[5,6,7,8])
+    liquid=np.isin(ww,[51,53,55,61,63,65,80,81,82,95,96,99])|np.isin(pt,[1])
+    previous_liquid=np.isin(before_ww,[51,53,55,61,63,65,80,81,82,95,96,99])|np.isin(before_pt,[1])
+    wet=frozen&~freeze&~snow&((liquid&(amount>=.1))|(previous_liquid&(previous>=.1)))
+    snow_ice=frozen&snow&((amount>=.1)|np.isin(ww,[70,71,72,73,74,75,77,85,86]))
+    rime=frozen&(rh>=95)&~wet&~snow_ice&~freeze
+    return wet.astype(np.uint8)|(snow_ice.astype(np.uint8)<<1)|(freeze.astype(np.uint8)<<2)|(rime.astype(np.uint8)<<3)
+
+def peak_hour_rain(fields,end):
+    # A true maximum of native hourly accumulation differences. Never divide
+    # a 3-hour total by three or claim an hourly amount without hourly inputs.
+    return np.maximum.reduce([delta(fields,end-shift,'rainTotal',3600) for shift in (0,3600,7200)])
 
 def analyze(fields,end):
     def val(k,t=end):return fields.get((t,k),np.full(N,np.nan,dtype=np.float32))
@@ -95,11 +139,19 @@ def analyze(fields,end):
     # hail size or tornado probability. Lack of an ingredient stays missing.
     ship=val('ship');stp=val('stp')
     conv_gust=np.where(conv_known&np.isfinite(gust),np.where(conv&(gust>=70),wind,0),255).astype(np.uint8)
-    conv_rain=np.where(conv_known&np.isfinite(rain),np.where(conv,levels(rain,[20,35,55,80]),0),255).astype(np.uint8)
-    return dict(frost=levels(-t,[0,5,10,20]),wind=wind,heat=heat,
+    hour_peak=np.where(liquid,peak_hour_rain(fields,end),np.nan)
+    conv_rain_level=np.maximum(np.where(np.isfinite(rain),levels(rain,[20,35,55,80]),0),np.where(np.isfinite(hour_peak),levels(hour_peak,[15,25,40,60]),0))
+    conv_rain=np.where(conv_known&(np.isfinite(rain)|np.isfinite(hour_peak)),np.where(conv,conv_rain_level,0),255).astype(np.uint8)
+    causes=ice_causes(fields,end)
+    frost=levels(-t,[.0001,5,10,20])
+    snow_cm=fresh_snow_cm(fields,end)
+    snow_signal=np.isin(ww,[70,71,72,73,74,75,77,85,86])|(np.isin(pt,[5,6])&wet)|(snow_cm>=.1)
+    snow_levels=categorical(phase_known|np.isfinite(snow_cm),snow_signal)
+    for level,threshold in enumerate((5,10,20),2):snow_levels[snow_signal&(snow_cm>=threshold)]=level
+    return dict(frost=frost,wind=wind,heat=heat,
                 fog=levels(np.where(v>=0,-v,np.nan),[-.25,-.05]),
-                snow=categorical(phase_known,np.isin(ww,[70,71,72,73,74,75,77,85,86])|(snow&wet)),freezing=categorical(phase_known,freeze),
-                ice=categorical(np.isfinite(ground)&(np.isfinite(precip)|np.isfinite(rh)),(ground<=0)&(wet|(rh>=95))),
+                snow=snow_levels,freezing=categorical(phase_known,freeze),
+                ice=categorical((causes>0)|(np.isfinite(ground)&(np.isfinite(precip)|np.isfinite(rh))),causes>0),
                 rain=levels(rain,[20,35,55,80]),durationrain=levels(sustained,[25,40,60,90]),storm=storm,stormwind=conv_gust,stormrain=conv_rain,
                 hail=categorical(conv_known&np.isfinite(ship),conv&(ship>=1)),
                 rotation=categorical(conv_known&np.isfinite(stp),conv&(stp>=1)))
@@ -127,6 +179,10 @@ def build(now,models,ends,watch=False):
     for end in ends:
         rows=[analyze(m['fields'],end) for m in models]
         codes={k:combine([r[k] for r in rows],k) for k in TYPES}
+        # Agreement on wet/snow/ice precipitation justifies a forecast warning;
+        # humidity alone remains a risk (road surface state is not measured).
+        direct_ice=sum(((ice_causes(m['fields'],end)&7)>0).astype(np.uint8) for m in models)
+        codes['ice'][(codes['ice']>=21)&(codes['ice']<=24)&(direct_ice>=2)]-=10
         # Do not create another Watch for a continuous, already warned event.
         if watch:
             if end-10800<cutoff:
@@ -140,22 +196,21 @@ def build(now,models,ends,watch=False):
         # Numeric values from the same models/time that actually triggered
         # the hazard, not invented ranges derived from warning thresholds.
         metrics={}
-        for kind,field in {'frost':'temp2','heat':'temp2','wind':'gust','fog':'visibility','snow':'rainTotal','rain':'rainTotal','durationrain':'rainTotal','stormrain':'rainTotal','stormwind':'gust'}.items():
-            summed=np.zeros(N,dtype=np.float32);count=np.zeros(N,dtype=np.uint8)
-            for model,row in zip(models,rows):
-                values=model['fields'].get((end,field))
-                if values is None:continue
-                if field=='rainTotal':
-                    before=model['fields'].get((end-(43200 if kind=='durationrain' else 10800),field))
-                    if before is None:continue
-                    values=values-before
-                valid=(row[kind]>0)&(row[kind]<255)&np.isfinite(values)
-                if field=='rainTotal':valid&=values>=0
-                summed[valid]+=values[valid];count[valid]+=1
-            mean=np.divide(summed,count,out=np.zeros_like(summed),where=count>0)
-            packed=np.where((count>0)&(np.abs(mean)<3276),np.rint(mean*10),-32768).astype('<i2')
+        priority=sorted(zip(models,rows),key=lambda mr:mr[0]['step'])
+        for kind,field in {'frost':'temp2','heat':'temp2','wind':'gust','fog':'visibility','snow':'snowCm','rain':'rainTotal','freezing':'rainTotal','durationrain':'rainTotal','stormrain':'rainTotal','stormwind':'gust','stormhour':'hourRain','iceCause':'iceCause'}.items():
+            chosen=np.full(N,np.nan,dtype=np.float32)
+            for model,row in priority:
+                f=model['fields'];hazard={'stormhour':'stormrain','iceCause':'ice'}.get(kind,kind)
+                if field=='snowCm':values=fresh_snow_cm(f,end)
+                elif field=='rainTotal':values=delta(f,end,'rainTotal')
+                elif field=='hourRain':values=peak_hour_rain(f,end)
+                elif field=='iceCause':values=ice_causes(f,end).astype(np.float32)
+                else:values=field_value(f,end,field)
+                valid=(row[hazard]>0)&(row[hazard]<255)&np.isfinite(values)&~np.isfinite(chosen)
+                chosen[valid]=values[valid]
+            packed=np.where(np.isfinite(chosen)&(np.abs(chosen)<3276),np.rint(chosen*10),-32768).astype('<i2')
             metrics[kind]=pack(packed)
-        periods.append(dict(start=end-10800,end=end,layers=layers,metrics=metrics))
+        periods.append(dict(start=end-10800,end=end,layers=layers,metrics=metrics,metricVersion=2))
     grid=dict(GRID,step=.04,nx=241,ny=206) if watch else GRID
     return dict(schema=1,generated=now,grid=grid,models=[{k:m[k] for k in ('model','run','step')} for m in models],periods=periods)
 

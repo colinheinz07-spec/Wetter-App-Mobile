@@ -3,9 +3,10 @@
 'use strict';
 const ROOT='https://raw.githubusercontent.com/colinheinz07-spec/Wetter-App/';
 const MOBILE_ROOT='https://raw.githubusercontent.com/colinheinz07-spec/Wetter-App-Mobile/';
-const TYPES={frost:'Luftfrost',wind:'Wind / Sturm',heat:'Hitze',fog:'Nebel',snow:'Schneefall',freezing:'Gefrierender Niederschlag',ice:'Glättepotenzial',rain:'Starkregen (3 h)',durationrain:'Dauerregen (12 h)',storm:'Gewitter',stormwind:'Gewitterböen-Potenzial',stormrain:'Konvektiver Starkregen (3 h)',hail:'Hagelpotenzial (SHIP)',rotation:'Rotationspotenzial (STP)'};
+const TYPES={frost:'Luftfrost',wind:'Wind / Sturm',heat:'Hitze',fog:'Nebel',snow:'Schneefall',freezing:'Gefrierender Niederschlag',ice:'Glättegefahr',rain:'Starkregen',durationrain:'Dauerregen',storm:'Gewitter',stormwind:'Gewitterböen-Potenzial',stormrain:'Konvektiver Starkregen',hail:'Hagelpotenzial (SHIP)',rotation:'Rotationspotenzial (STP)'};
 const OPTIONAL=['stormwind','stormrain','hail','rotation','durationrain'];
-const METRICS={frost:['°C',0,'Lufttemperatur'],heat:['°C',0,'Lufttemperatur'],wind:['km/h',0,'Böen'],stormwind:['km/h',0,'Böen'],fog:['m',0,'Sichtweite'],snow:['mm / 3 h',1,'Niederschlag (Wasseräquivalent)'],rain:['mm / 3 h',0,'Niederschlagsmenge'],durationrain:['mm / 12 h',0,'Niederschlagsmenge'],stormrain:['mm / 3 h',0,'Niederschlagsmenge']};
+const METRICS={frost:['°C',1,'Lufttemperatur'],heat:['°C',0,'Lufttemperatur'],wind:['km/h',0,'Böen'],stormwind:['km/h',0,'Böen'],fog:['m',0,'Sichtweite'],snow:['cm',1,'Neuschnee (geschätzt)'],rain:['l/m²',1,'Niederschlagssumme'],freezing:['l/m²',1,'Niederschlagssumme'],durationrain:['l/m²',1,'Niederschlagssumme'],stormrain:['l/m²',1,'Niederschlagssumme']};
+const ACCUMULATED=new Set(['snow','rain','freezing','durationrain','stormrain']);
 const HINT={storm:'Konvektionssignal bzw. CAPE, CIN, Scherung und Niederschlag.',stormwind:'Konvektionssignal zusammen mit modellierten Böen; kein gemessener Gewitterwind.',stormrain:'Konvektionssignal und modellierte 3-h-Niederschlagsmenge.',hail:'SHIP ≥ 1 bei Konvektionssignal; keine Vorhersage der Hagelgröße.',rotation:'STP ≥ 1 bei Konvektionssignal; keine Tornadovorhersage.'};
 const OFFICIAL=['#f3cf35','#f58b25','#de343b','#8d247f'],OWN=['#edc844','#f18b26','#e13c49','#912b8f'];
 const ICON_NAMES={...TYPES,thaw:'Tauwetter',other:'Sonstige Warnung'};
@@ -63,26 +64,47 @@ function stormHit(c,p,t){if(stormFootprint(c).some(r=>pointInRing(...p,r)))retur
 function normalizeOfficial(doc,t){if(doc?.type!=='FeatureCollection'||!Array.isArray(doc.features)||Number.isFinite(doc.numberMatched)&&doc.numberMatched>doc.features.length)throw Error('Incomplete DWD WFS');const alerts=[];for(const f of doc.features){const p=f.properties||{},g=f.geometry||{};if(p.STATUS!=='Actual'||!['Alert','Update'].includes(p.MSGTYPE)||p.SCOPE!=='Public')continue;const start=Date.parse(p.ONSET||p.EFFECTIVE)/1000,end=Date.parse(p.EXPIRES)/1000,sent=Date.parse(p.SENT)/1000;if(![start,end,sent].every(Number.isFinite)||end<=Math.max(t,start)||sent>t+300)continue;const polygons=g.type==='MultiPolygon'?g.coordinates:g.type==='Polygon'?[g.coordinates]:[];if(!Array.isArray(polygons)||!polygons.length||!polygons.every(poly=>poly.length&&poly.every(r=>r.length>=4&&r.every(c=>validPoint(c)&&c[0]>=4&&c[0]<=17&&c[1]>=46&&c[1]<=56))))continue;alerts.push({id:p.IDENTIFIER||f.id,start,end,sent,level:({Minor:1,Moderate:2,Severe:3,Extreme:4})[p.SEVERITY]||0,possible:['Possible','Unknown','Unlikely'].includes(p.CERTAINTY)||/VORAB/i.test(p.HEADLINE||''),certainty:p.CERTAINTY,event:p.EVENT,headline:p.HEADLINE,description:p.DESCRIPTION,instruction:p.INSTRUCTION,altitude:p.ALTITUDE,ceiling:p.CEILING,polygons})}return {schema:1,generated:t,source:'DWD WFS live',alerts}}
 function pickPeriods(d,t,window){if(!d)return [];const start=window==='6-12'?t+21600:window==='12-24'?t+43200:t,end=window==='0-6'?t+21600:window==='6-12'?t+43200:t+86400;return d.periods.filter(p=>p.end>start&&p.start<end)}
 function cellsForPoint(g,p){const x=Math.round((p[0]-g.west)/g.step),y=Math.round((p[1]-g.south)/g.step);return x>=0&&y>=0&&x<g.nx&&y<g.ny?y*g.nx+x:-1}
-// One connected warning area, not an arbitrary radius around the tap.
+// Warning contours span connected areas; numeric details must NEVER aggregate
+// unrelated cells in that contour. Sample the clicked cell only.
+function metricAt(period,kind,n){
+ if((kind==='snow'||kind==='durationrain'||kind==='stormhour'||kind==='iceCause')&&period.metricVersion!==2)return NaN;
+ const m=period.metricValues?.[kind];if(!m||n<0||n*2+1>=m.length)return NaN;
+ const v=(m.charCodeAt(n*2)|(m.charCodeAt(n*2+1)<<8))<<16>>16;return v===-32768?NaN:v/10;
+}
 function areaStats(period,g,kind,n,stage){
- const values=period.decoded[kind],metric=period.metricValues?.[kind],size=g.nx*g.ny;
- if(n<0||!stageMatches(values?.[n],stage))return {area:0,lo:Infinity,hi:-Infinity};
- const seen=new Uint8Array(size),queue=new Int32Array(size);let head=0,tail=0,lo=Infinity,hi=-Infinity;
- const add=i=>{if(i>=0&&i<size&&!seen[i]&&stageMatches(values[i],stage)){seen[i]=1;queue[tail++]=i}};
- add(n);while(head<tail){const i=queue[head++],x=i%g.nx;if(metric){const v=(metric.charCodeAt(i*2)|(metric.charCodeAt(i*2+1)<<8))<<16>>16;if(v!==-32768){lo=Math.min(lo,v/10);hi=Math.max(hi,v/10)}}
- if(x>0)add(i-1);if(x<g.nx-1)add(i+1);add(i-g.nx);add(i+g.nx)}
- return {area:tail*g.step*g.step*111.195**2*Math.cos((g.south+Math.floor(n/g.nx)*g.step)*Math.PI/180),lo,hi};
+ const v=metricAt(period,kind,n),known=Number.isFinite(v);
+ const signal=k=>modelStage(period.decoded[k]?.[n])!==null;
+ const gust=signal('stormwind')?metricAt(period,'stormwind',n):NaN;
+ const hour=signal('stormrain')?metricAt(period,'stormhour',n):NaN;
+ const rain3=signal('stormrain')?metricAt(period,'stormrain',n):NaN;
+ return {lo:known?v:Infinity,hi:known?v:-Infinity,sum:known?v:0,known:+known,count:1,
+  iceCause:metricAt(period,'iceCause',n)||0,gust:Number.isFinite(gust)?gust:-Infinity,
+  hour:Number.isFinite(hour)?hour:-Infinity,rain3:Number.isFinite(rain3)?rain3:-Infinity,
+  hail:signal('hail'),windRisk:signal('stormwind'),rainRisk:signal('stormrain')};
 }
 function eventSummary(kind,stats,stage){
- const subject=kind==='frost'?'Frost':TYPES[kind],widely=stats.area>=100?'verbreitet ':'';let lead=stage==='active'?'Im Warngebiet wird '+widely+subject+' erwartet.':'Im Gebiet besteht '+widely+'die Möglichkeit für '+subject+'.';
- if(kind==='frost'&&stage==='active')lead='Im Warngebiet droht '+widely+'Frost.';
- if(!Number.isFinite(stats.lo)||!METRICS[kind])return lead;
+ const subject=kind==='frost'?'Luftfrost':TYPES[kind];let lead=stage==='active'?'Am ausgewählten Ort wird '+subject+' erwartet.':'Am ausgewählten Ort besteht die Möglichkeit für '+subject+'.';
+ if(kind==='freezing')lead='Glättegefahr durch gefrierenden Regen oder Sprühregen am ausgewählten Ort.';
+ if(kind==='ice'){
+  const causes=[[1,'überfrierende Nässe'],[2,'Schneeglätte'],[4,'gefrierender Regen'],[8,'Reifglätte']].filter(([b])=>stats.iceCause&b).map(([,s])=>s);
+  return 'Glättegefahr am ausgewählten Ort.'+(causes.length?' Mögliche Ursache: '+causes.join(', ')+'.':' Ursache nicht aus den verfügbaren Modelldaten ableitbar.');
+ }
+ if(kind==='storm'){
+  const hints=[];if(stats.windRisk)hints.push('Gefahr von Sturmböen'+(Number.isFinite(stats.gust)?' bis '+Math.round(stats.gust)+' km/h':''));
+  if(stats.hail)hints.push('Hagel möglich');
+  if(stats.rainRisk)hints.push('Starkregen'+(Number.isFinite(stats.hour)?' bis '+stats.hour.toLocaleString('de-DE')+' l/m² in einer Stunde (Modellmaximum)':Number.isFinite(stats.rain3)?' bis '+stats.rain3.toLocaleString('de-DE')+' l/m² in 3 Stunden':''));
+  return lead+(hints.length?' Begleitgefahren: '+hints.join(' · ')+'.':'');
+ }
+ if(!METRICS[kind])return lead;
+ if(!Number.isFinite(stats.lo))return lead+' '+METRICS[kind][2]+': keine verfügbaren Modellwerte.';
  const [unit,digits,label]=METRICS[kind],factor=kind==='fog'?1000:1,num=v=>(v*factor).toLocaleString('de-DE',{maximumFractionDigits:digits});
+ if(ACCUMULATED.has(kind))return lead+' '+label+': '+(stats.known===stats.count?num(stats.sum)+' '+unit+' im angegebenen Zeitraum.':'keine vollständige Modellabdeckung für die Gesamtsumme.');
+ if(kind==='wind'||kind==='stormwind')return lead+' Böen bis '+num(stats.hi)+' '+unit+'.';
  return lead+' '+label+': '+(num(stats.lo)===num(stats.hi)?num(stats.lo):num(stats.lo)+' bis '+num(stats.hi))+' '+unit+'.';
 }
 function groupWarnings(periods,g,kind,n,stage){
  const events=[];for(const p of periods){const c=p.decoded[kind]?.[n];if(!stageMatches(c,stage))continue;const stats=areaStats(p,g,kind,n,stage),last=events.at(-1);
- if(last&&last.end===p.start){last.end=p.end;last.code=modelLevel(c)>modelLevel(last.code)?c:last.code;last.stats={area:Math.max(last.stats.area,stats.area),lo:Math.min(last.stats.lo,stats.lo),hi:Math.max(last.stats.hi,stats.hi)}}
+ if(last&&last.end===p.start){last.end=p.end;last.code=modelLevel(c)>modelLevel(last.code)?c:last.code;const s=last.stats;last.stats={lo:Math.min(s.lo,stats.lo),hi:Math.max(s.hi,stats.hi),sum:s.sum+stats.sum,known:s.known+stats.known,count:s.count+stats.count,iceCause:s.iceCause|stats.iceCause,gust:Math.max(s.gust,stats.gust),hour:Math.max(s.hour,stats.hour),rain3:Math.max(s.rain3,stats.rain3),hail:s.hail||stats.hail,windRisk:s.windRisk||stats.windRisk,rainRisk:s.rainRisk||stats.rainRisk}}
  else events.push({kind,code:c,start:p.start,end:p.end,stats})}
  return events.map(e=>({...e,summary:eventSummary(kind,e.stats,stage)}));
 }
@@ -143,7 +165,7 @@ const host=document.getElementById('national-warning');if(!host)return;
 let stage='active',filter='all',windowId='all',point=null,risk=null,watchRisk=null,errorWatch=false,stormData=null,selectedStorm=null,request=null,last=0,lastRiskCheck=0,errorR=false,errorStorm=false,showRadar=true;
 host.innerHTML=`<div class="nw-head"><div><h2>Eigene Warnlage Deutschland</h2><p>Aktive Warnungen bis 24 Stunden · Watches bis 96 Stunden</p></div><button type="button" id="nw-refresh" aria-label="Warnlage aktualisieren">↻</button></div>
 <div class="nw-tabs" role="group" aria-label="Warnlage"><button data-nw-stage="active" aria-pressed="true">Aktiv</button><button data-nw-stage="upcoming" aria-pressed="false">Bevorstehend · Watch</button><button data-nw-stage="risk" aria-pressed="false">Risiken</button></div>
-<div class="nw-controls"><label id="nw-time-label">Zeitraum<select id="nw-time"><option value="all">Nächste 24 h</option><option value="0-6">0–6 h</option><option value="6-12">6–12 h</option><option value="12-24">12–24 h</option></select></label></div><p id="nw-explain" class="nw-note"></p><div class="nw-map-layout"><div class="nw-map"><img class="nw-map-base" src="assets/national-map.svg" alt="Deutschland mit Bundeslandgrenzen"><svg id="nw-canvas" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${MAP_W} ${MAP_H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Deutschlandkarte der Wettergefahren. Ort antippen für Details."></svg><div class="nw-zoom-controls" aria-label="Kartenzoom"><button type="button" id="nw-zoom-plus" aria-label="Hineinzoomen">+</button><button type="button" id="nw-zoom-minus" aria-label="Herauszoomen">−</button><button type="button" id="nw-zoom-reset" aria-label="Deutschlandübersicht" title="Deutschlandübersicht">⌂</button></div><span class="nw-zoom-level" id="nw-zoom-level">1×</span><section id="nw-popup" class="nw-popup" aria-label="Details zum gewählten Kartenpunkt" hidden><div class="nw-popup-head"><strong>Information zum Kartenpunkt</strong><button type="button" id="nw-close" aria-label="Information schließen">×</button></div><div id="nw-detail" class="nw-detail" aria-live="polite"></div></section></div><aside id="nw-type-tiles" class="nw-type-tiles" aria-label="Gefahren auf der Karte"></aside></div><p class="nw-note nw-map-help">Zwei Finger: zoomen · Vergrößerte Karte: verschieben · Warngebiet antippen: Details</p>
+<div class="nw-controls"><label id="nw-time-label">Zeitraum<select id="nw-time"><option value="all">Nächste 24 h</option><option value="0-6">0–6 h</option><option value="6-12">6–12 h</option><option value="12-24">12–24 h</option></select></label></div><p id="nw-explain" class="nw-note"></p><div class="nw-map-layout"><div class="nw-map"><img class="nw-map-base" src="assets/national-map.svg" alt="Deutschland mit Bundeslandgrenzen"><svg id="nw-canvas" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${MAP_W} ${MAP_H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Deutschlandkarte der Wettergefahren. Ort antippen für Details."></svg><div class="nw-zoom-controls" aria-label="Kartenzoom"><button type="button" id="nw-zoom-plus" aria-label="Hineinzoomen">+</button><button type="button" id="nw-zoom-minus" aria-label="Herauszoomen">−</button><button type="button" id="nw-zoom-reset" aria-label="Deutschlandübersicht" title="Deutschlandübersicht">⌂</button></div><span class="nw-zoom-level" id="nw-zoom-level">1×</span><section id="nw-popup" class="nw-popup" aria-label="Details zum gewählten Kartenpunkt" hidden><div class="nw-popup-head"><strong>Information zum Kartenpunkt</strong><button type="button" id="nw-close" aria-label="Information schließen">×</button></div><div id="nw-detail" class="nw-detail" aria-live="polite"></div></section><aside id="nw-type-tiles" class="nw-type-tiles" aria-label="Gefahren auf der Karte"></aside></div></div><p class="nw-note nw-map-help">Zwei Finger: zoomen · Vergrößerte Karte: verschieben · Warngebiet antippen: Details</p>
 <button type="button" id="nw-my-location" class="nw-location">◎ Warnlage an meinem Ort</button>
 <label id="nw-radar-label" class="nw-radar"><input id="nw-radar" type="checkbox" checked> Eigene Radargefahren (Radar ≥ 15 mm/h)</label>
 <div class="nw-legend" id="nw-level-legend"><span><i style="background:#edc844"></i>1 Leicht</span><span><i style="background:#f18b26"></i>2 Markant</span><span><i style="background:#e13c49"></i>3 Unwetter</span><span><i style="background:#912b8f"></i>4 Extrem</span><span><i style="background:#4c166e"></i>5 Außergewöhnlich*</span></div><p class="nw-note" id="nw-sources" role="status"></p><p class="nw-note">Eigene, nicht amtliche Warnlage. Rohdaten: DWD ICON-D2 und KONRAD3D, ECMWF IFS (CC BY 4.0), NOAA GFS. Geometrien © GeoBasis-DE / BKG 2021, modifiziert. Keine Entwarnung bei fehlenden Daten. *L5 erfordert zusätzliche Bestätigung.</p>`;
@@ -171,7 +193,7 @@ canvas.addEventListener('pointermove',e=>{if(!mouseDrag||e.pointerId!==mouseDrag
 function endMouse(e){if(mouseDrag?.id!==e.pointerId)return;if(mouseDrag.moved)suppressClickUntil=Date.now()+250;mouseDrag=null}
 canvas.addEventListener('pointerup',endMouse);canvas.addEventListener('pointercancel',endMouse);
 canvas.addEventListener('wheel',e=>{if(!e.ctrlKey)return;const r=canvas.getBoundingClientRect();if(!r.width||!r.height)return;e.preventDefault();const p=localPoint(e.clientX,e.clientY,r);setView(zoomMap(viewport,viewport.zoom*Math.exp(-e.deltaY*.003),p,p,r.width,r.height))},{passive:false});
-canvas.addEventListener('click',e=>{if(Date.now()<suppressClickUntil)return;const r=canvas.getBoundingClientRect();if(!r.width||!r.height)return;const cell=e.target?.closest?.('[data-storm-id]');selectedStorm=cell?.dataset.stormId||null;const marker=e.target?.closest?.('[data-warning-kind]');if(marker){const lon=Number(marker.dataset.warningLon),lat=Number(marker.dataset.warningLat);if(Number.isFinite(lon)&&Number.isFinite(lat)){point=[lon,lat];showDetails();return}}point=mapPoint(viewport,e.clientX-r.left,e.clientY-r.top,r.width,r.height);showDetails()});
+canvas.addEventListener('click',e=>{if(Date.now()<suppressClickUntil)return;const r=canvas.getBoundingClientRect();if(!r.width||!r.height)return;const cell=e.target?.closest?.('[data-storm-id]');selectedStorm=cell?.dataset.stormId||null;point=mapPoint(viewport,e.clientX-r.left,e.clientY-r.top,r.width,r.height);showDetails()});
 if(typeof ResizeObserver==='function')new ResizeObserver(applyViewport).observe(canvas);
 let geometry=null;function getGeometry(){return geometry||(geometry=mapGeometry(globalThis.WEATHER_BASEMAP,globalThis.WEATHER_EXTRA_GEO))}
 function storms(t){return stage==='active'&&stormFresh(stormData,t)?stormData.cells.filter(c=>(filter==='all'||stormKinds(c).includes(filter))&&(c.point[0]>=4&&c.point[0]<=17&&c.point[1]>=46&&c.point[1]<=56||c.path.some(p=>p.point[0]>=5&&p.point[0]<=15.5&&p.point[1]>=47&&p.point[1]<=55.2))):[]}
@@ -244,18 +266,25 @@ function render(){
 }
 async function fetchData(branch,file,root=ROOT){const c=new AbortController(),timer=setTimeout(()=>c.abort(),20000);try{const res=await fetch(root+branch+'/'+file+'?v='+Math.floor(now()/60),{signal:c.signal,cache:'no-store',credentials:'omit'});if(!res.ok)throw Error('HTTP '+res.status);const bytes=await res.arrayBuffer(),b=new Uint8Array(bytes);return b[0]===31&&b[1]===139?await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).json():JSON.parse(new TextDecoder().decode(bytes))}finally{clearTimeout(timer)}}
 let watchRequest=null,lastWatchCheck=0;
+function decodeRisk(d){
+ const size=d.grid.nx*d.grid.ny;
+ for(const p of d.periods){p.decoded={};p.metricValues={};
+  for(const k in TYPES){const raw=p.layers[k]&&atob(p.layers[k]),a=new Uint8Array(size);if(raw){for(let i=0;i<a.length;i++)a[i]=raw.charCodeAt(i)}else a.fill(255);p.decoded[k]=a}
+  for(const k of [...Object.keys(METRICS),'iceCause','stormhour']){const metric=p.metrics?.[k];if(typeof metric==='string'&&metric.length===4*Math.ceil(size*2/3))try{p.metricValues[k]=atob(metric)}catch{}}
+ }
+}
 async function refreshWatch(force=false){
  if(watchRequest)return watchRequest;if(!force&&now()-lastWatchCheck<300)return;
  lastWatchCheck=now();
  watchRequest=fetchData('mobile-warning-data','national-watches.json.gz',MOBILE_ROOT).then(d=>{
   if(!fresh(d,5400)||!validRisk(d)||d.grid.step!==.04)throw Error('invalid watch');
   if(watchRisk&&watchRisk.generated>=d.generated){errorWatch=false;return}
-  for(const p of d.periods){p.decoded={};p.metricValues={};for(const k in TYPES){const raw=p.layers[k]&&atob(p.layers[k]),a=new Uint8Array(d.grid.nx*d.grid.ny);if(raw){for(let i=0;i<a.length;i++)a[i]=raw.charCodeAt(i)}else a.fill(255);p.decoded[k]=a;const metric=p.metrics?.[k];if(typeof metric==='string'&&metric.length===4*Math.ceil(a.length*2/3))p.metricValues[k]=atob(metric)}}
+  decodeRisk(d);
   watchRisk=d;areaCache.clear();errorWatch=false;
  }).catch(()=>{errorWatch=true}).finally(()=>{watchRequest=null;if(stage==='upcoming')render()});return watchRequest;
 }
 async function refresh(force=false){render();if(request)return request;if(!force&&now()-last<60)return;last=now();const forecast=async()=>{if(!force&&riskData(now())&&now()-lastRiskCheck<300)return;lastRiskCheck=now();let d;try{d=await fetchData('mobile-warning-data','national-risks.json.gz',MOBILE_ROOT);if(!fresh(d,5400)||!validRisk(d))throw Error('invalid forecast')}catch{d=await fetchData('national-risks-data','national-risks.json.gz');if(!fresh(d,5400)||!validRisk(d))throw Error('invalid fallback')}
- if(risk&&d.generated===risk.generated&&d.grid.step===risk.grid.step)return;for(const p of d.periods){p.decoded={};p.metricValues={};for(const k in TYPES){const raw=p.layers[k]&&atob(p.layers[k]),a=new Uint8Array(d.grid.nx*d.grid.ny);if(raw){for(let i=0;i<a.length;i++)a[i]=raw.charCodeAt(i)}else a.fill(255);p.decoded[k]=a;const metric=p.metrics?.[k];if(typeof metric==='string'&&metric.length===4*Math.ceil(d.grid.nx*d.grid.ny*2/3))try{p.metricValues[k]=atob(metric)}catch{}}}if(!risk||d.generated>=risk.generated||d.grid.step<risk.grid.step){risk=d;areaCache.clear()}errorR=false};request=Promise.allSettled([fetchData('storm-tracks-data','storm-tracks.json',MOBILE_ROOT).then(d=>{if(!stormFresh(d))throw Error('stale storm tracking');if(!stormData||d.observed>=stormData.observed)stormData=d;errorStorm=false;render()}).catch(()=>{errorStorm=true}),forecast().catch(()=>{errorR=true})]).finally(()=>{request=null;render()});return request}
+ if(risk&&d.generated===risk.generated&&d.grid.step===risk.grid.step)return;decodeRisk(d);if(!risk||d.generated>=risk.generated||d.grid.step<risk.grid.step){risk=d;areaCache.clear()}errorR=false};request=Promise.allSettled([fetchData('storm-tracks-data','storm-tracks.json',MOBILE_ROOT).then(d=>{if(!stormFresh(d))throw Error('stale storm tracking');if(!stormData||d.observed>=stormData.observed)stormData=d;errorStorm=false;render()}).catch(()=>{errorStorm=true}),forecast().catch(()=>{errorR=true})]).finally(()=>{request=null;render()});return request}
 host.querySelectorAll('[data-nw-stage]').forEach(b=>b.addEventListener('click',()=>{clearSelection();stage=b.dataset.nwStage;filter='all';render();if(stage==='upcoming')return refreshWatch()}));$('#nw-type-tiles').addEventListener('click',e=>{const b=e.target.closest?.('[data-nw-kind]');if(b){clearSelection();filter=b.dataset.nwKind;render()}});$('#nw-time').addEventListener('change',e=>{clearSelection();windowId=e.target.value;render()});$('#nw-refresh').addEventListener('click',()=>stage==='upcoming'?Promise.all([refresh(true),refreshWatch(true)]):refresh(true));$('#nw-close').addEventListener('click',()=>{clearSelection();render()});
 $('#nw-my-location').addEventListener('click',()=>{try{const p=homeLocationPoint(location);if(p){selectedStorm=null;point=p;showDetails()}}catch{}});
 $('#nw-radar').addEventListener('change',e=>{showRadar=e.target.checked;if(showRadar&&typeof refreshRadarClock==='function')Promise.resolve(refreshRadarClock()).then(render);render()});

@@ -16,6 +16,21 @@ const smallPeriod=(start,code,temp)=>{const b=Buffer.alloc(12);for(let i=0;i<6;i
 const merged=w.groupWarnings([smallPeriod(t,11,-1),smallPeriod(t+10800,12,-6),smallPeriod(t+21600,0,2),smallPeriod(t+32400,11,-3)],smallGrid,'frost',0,'active');
 assert.equal(merged.length,2);assert.equal(merged[0].end,t+21600);assert.equal(merged[0].code,12);assert.match(merged[0].summary,/-6 bis -1 °C/);
 assert.doesNotMatch(merged[0].summary,/Umkreis/);
+// Same connected warning extends into other regions; their extrema must
+// never contaminate actual local numbers (Westerwald versus mountains).
+const local=(start,temps)=>{const p=smallPeriod(start,11,0),b=Buffer.alloc(12);temps.forEach((v,i)=>b.writeInt16LE(v*10,i*2));p.metricValues.frost=b.toString('latin1');return p};
+const localEvent=w.groupWarnings([local(t,[-1,-15,0,-12,0,0]),local(t+10800,[-3,-14,0,-11,0,0])],smallGrid,'frost',0,'active')[0];
+assert.match(localEvent.summary,/-3 bis -1 °C/);assert.doesNotMatch(localEvent.summary,/-15|-12/);
+const amountPeriod=(start,k,v,version=2)=>{const b=Buffer.alloc(12);for(let i=0;i<6;i++)b.writeInt16LE(v*10,i*2);return {start,end:start+10800,metricVersion:version,decoded:{[k]:Uint8Array.from([11,11,0,0,0,0])},metricValues:{[k]:b.toString('latin1')}}};
+assert.match(w.groupWarnings([amountPeriod(t,'snow',2),amountPeriod(t+10800,'snow',3)],smallGrid,'snow',0,'active')[0].summary,/5 cm im angegebenen Zeitraum/);
+assert.match(w.groupWarnings([amountPeriod(t,'rain',21),amountPeriod(t+10800,'rain',22)],smallGrid,'rain',0,'active')[0].summary,/43 l\/m²/);
+assert.doesNotMatch(w.groupWarnings([amountPeriod(t,'snow',12,1)],smallGrid,'snow',0,'active')[0].summary,/12 cm/);
+assert.match(w.groupWarnings([amountPeriod(t,'durationrain',30,1)],smallGrid,'durationrain',0,'active')[0].summary,/keine verfügbaren Modellwerte/);
+const ice=amountPeriod(t,'ice',0);ice.metricValues.iceCause=amountPeriod(t,'iceCause',3).metricValues.iceCause;
+assert.match(w.groupWarnings([ice],smallGrid,'ice',0,'active')[0].summary,/überfrierende Nässe, Schneeglätte/);
+const storm=amountPeriod(t,'storm',0);for(const [k,v] of [['stormwind',85],['stormrain',32],['stormhour',19],['hail',1]]){const p=amountPeriod(t,k,v);storm.metricValues[k]=p.metricValues[k];storm.decoded[k]=p.decoded[k]}
+const stormSummary=w.groupWarnings([storm],smallGrid,'storm',0,'active')[0].summary;
+assert.match(stormSummary,/85 km\/h/);assert.match(stormSummary,/Hagel möglich/);assert.match(stormSummary,/19 l\/m² in einer Stunde/);
 assert.equal(w.fresh({schema:1,generated:t-1300},1200,t),false);
 const outer=[[5,50],[8,50],[8,52],[5,52],[5,50]],hole=[[6,50.5],[7,50.5],[7,51.5],[6,51.5],[6,50.5]];
 assert.equal(w.inPolygons([5.5,50.5],[[outer,hole]]),true);
@@ -98,7 +113,7 @@ assert.doesNotMatch(el('national-warning').innerHTML,/id="nw-list"/);
  assert.match(el('#nw-type-tiles').innerHTML,/data-nw-kind="frost"/);
  handlers.get('#nw-type-tiles:click')({target:{closest:()=>({dataset:{nwKind:'frost'}})}});
  tap('[data-warning-kind]',{warningLon:'8',warningLat:'50'});assert.match(el('#nw-detail').innerHTML,/Luftfrost · L2/);
- assert.match(el('#nw-detail').innerHTML,/droht verbreitet Frost/);assert.match(el('#nw-detail').innerHTML,/-4 bis -2 °C/);assert.match(canvas.innerHTML,/class="nw-districts"/);
+ assert.match(el('#nw-detail').innerHTML,/Am ausgewählten Ort wird Luftfrost erwartet/);assert.match(el('#nw-detail').innerHTML,/-2 °C/);assert.doesNotMatch(el('#nw-detail').innerHTML,/-4 bis/);assert.match(canvas.innerHTML,/class="nw-districts"/);
  assert.equal((el('#nw-detail').innerHTML.match(/Luftfrost · L2/g)||[]).length,1);
  assert.doesNotMatch(canvas.innerHTML,/data-storm-id="test"/);
  await handlers.get('tab-upcoming:click')();
