@@ -26,6 +26,7 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),path
   assert.equal(await page.evaluate(()=>WeatherObservation.fogAt([7.95,50.65],400)?.state),'risk');
   assert.match(await page.locator('#local-warning-list').innerText(),/Nebelpotenzial/);
   await page.locator('[data-page="map"]').click();await page.locator('[data-map-source="live"]').click();
+  await page.locator('.map-settings-fold summary').click();
   await page.locator('#map-live-layer').selectOption('temperature');await page.waitForFunction(()=>document.querySelector('#map-data-notice').textContent==='DWD · +0 h Analyse');
   assert.match(await page.locator('#map-interval').innerText(),/Flächendeckende aktuelle/);
   await page.locator('#map-live-layer').selectOption('wind');await page.waitForFunction(()=>document.querySelector('#map-data-notice').textContent==='DWD · +0 h Analyse');
