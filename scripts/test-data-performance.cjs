@@ -123,7 +123,7 @@ const server=http.createServer((req,res)=>{
   await page.locator('[data-full-layer="satellite"]').click();
   await page.waitForFunction(()=>document.querySelector('#map-data-notice').textContent==='Beobachtung');
   await page.locator('[data-full-layer="doppler"]').click();
-  await page.waitForFunction(()=>document.querySelector('#map-data-notice').textContent==='Beobachtung');
+  await page.waitForFunction(()=>document.querySelector('#map-layer-title').textContent.includes('Doppler')&&document.querySelector('#map-data-notice').textContent==='Beobachtung');
   assert.match(await page.locator('#map-interval').innerText(),/kein Tornadonachweis/);
   assert.equal(requests.filter(s=>new URL(s).pathname.endsWith('/live-imagery.json')).length,1);
   assert.ok(!requests.some(s=>/\/main\/data\/(icon-d2|icon-eu|ifs|gfs|aifs)\.json(?:\.gz)?(?:\?|$)/.test(s)),'no all-fields country package when the native packets suffice');
