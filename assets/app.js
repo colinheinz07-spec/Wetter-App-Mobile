@@ -910,7 +910,7 @@ function homeCurrentSample(){
  return {...s,temp:Math.round(s.temp),wind:Math.round(s.wind),gust:Math.round(s.wind*1.7),feels:Math.round(s.temp-3),condition:weather[0],icon:weather[1]};
 }
 function homeMapCards(){
- return '<section class="panel home-maps"><div class="section-head"><div><h2>Aktuelle Wetterkarten</h2><p>'+placeText(location.name)+' und Umgebung · '+(typeof weatherRealEnabled!=='undefined'&&weatherRealEnabled?'DWD / ECMWF':'Demo')+'</p></div><span class="badge">Karten</span></div><div class="home-map-grid">'+homeMapLayers.map(([id,title,desc])=>'<button class="home-map-card" data-home-map="'+id+'" aria-label="'+title+' im Vollbild öffnen"><div class="home-map-head"><div><strong>'+title+'</strong><small>'+desc+'</small></div><span aria-hidden="true">⛶</span></div><canvas id="home-map-'+id+'" width="360" height="160" aria-hidden="true"></canvas><div class="home-map-foot"><span id="home-value-'+id+'">'+(typeof weatherRealEnabled!=='undefined'&&weatherRealEnabled?'Daten werden geladen':'Demo')+'</span><b>Öffnen ›</b></div></button>').join('')+'</div></section>';
+ return '<section class="panel home-maps"><div class="section-head"><div><h2>Radar &amp; Modellkarten</h2><p>'+placeText(location.name)+' und Umgebung · '+(typeof weatherRealEnabled!=='undefined'&&weatherRealEnabled?'DWD / ECMWF':'Demo')+'</p></div><span class="badge">Karten</span></div><div class="home-map-grid">'+homeMapLayers.map(([id,title,desc])=>'<button class="home-map-card" data-home-map="'+id+'" aria-label="'+title+' im Vollbild öffnen"><div class="home-map-head"><div><strong>'+title+'</strong><small>'+(id==='radar'?desc:desc+' · Modellprognose')+'</small></div><span aria-hidden="true">⛶</span></div><canvas id="home-map-'+id+'" width="360" height="160" aria-hidden="true"></canvas><div class="home-map-foot"><span id="home-value-'+id+'">'+(typeof weatherRealEnabled!=='undefined'&&weatherRealEnabled?'Daten werden geladen':'Demo')+'</span><b>Öffnen ›</b></div></button>').join('')+'</div></section>';
 }
 function previewBounds(point){
  const [lon,lat]=point;return {west:lon-2.6,east:lon+2.6,south:lat-1.55,north:lat+1.55,w:360,h:160};
@@ -1733,7 +1733,7 @@ async function fetchQuickWeather(p,model,root){
 }
 const pointReads=new Map();
 async function pointRead(root,path,zip=false,version=''){
- const url=root+path+'?v='+encodeURIComponent(version||Math.floor(Date.now()/120000));if(pointReads.has(url))return pointReads.get(url);
+ const url=root+path+'?v='+encodeURIComponent(version||Math.floor(Date.now()/(root.includes('/generated-live-ruc/')?60000:120000)));if(pointReads.has(url))return pointReads.get(url);
  const task=(async()=>{try{const r=await fetch(url,{credentials:'omit',cache:version?'default':'no-cache',priority:root.includes('/quick/')||root.includes('/generated-live-ruc/')?'high':'low',signal:AbortSignal.timeout(zip?20000:7000)});if(!r.ok)return null;if(!zip)return await r.json();const a=await r.arrayBuffer(),b=new Uint8Array(a);return b[0]===31&&b[1]===139?await new Response(new Blob([a]).stream().pipeThrough(new DecompressionStream('gzip'))).json():JSON.parse(new TextDecoder().decode(a));}catch{return null}})().finally(()=>pointReads.delete(url));pointReads.set(url,task);return task;
 }
 async function fetchLocationTile(p,model,root){
@@ -1795,8 +1795,7 @@ function frameVal(f,id,interval=0){
  if(['temp2','tmin','tmax'].includes(id)){const v=nativeTemperatureValue(f.d,f.point,f.hour,id);if(v!==null)return v;}
  return realPoint(f.d,f.point,id,f.hour,interval);
 }
-// The current location and the live temperature map use the same raster.
-// Never substitute a neighbouring station or a future forecast hour.
+// The model-based forecast frame is separate from the current live analysis.
 function currentGridFrame(point,now=Date.now(),models=forecastPriority){
  if(!point)return null;const fallback=[];
  for(const model of models){const runs=[...locationRuns(model,point),...quickRuns(model,point)],candidates=runs.flatMap(d=>{const run=Date.parse(d.run),hour=d.hours.filter(h=>run+h*3600000<=now).at(-1);return hour==null?[]:[{d,hour,time:run+hour*3600000,point}]});
@@ -1817,7 +1816,7 @@ function validLiveValue(id,v){return Number.isFinite(v)&&(id==='temp2'||id==='de
 const liveTileKey=p=>Math.floor(p[0])+'_'+Math.floor(p[1]);
 function validateLiveAnalysis(m,now){
  const run=Date.parse(m?.run),generated=Date.parse(m?.generated);
- if(m?.schema!==1||m.product!=='ruc-surface-analysis'||m.model!=='ICON-D2-RUC'||m.gridMapping!=='native-triangular-cells'||m.coordScale!==.00001||m.scale!==.1||m.tileStep!==1||m.missing!==-32768||!Number.isFinite(run)||!Number.isFinite(generated)||run>now||now-run>liveAge||generated<run||!Array.isArray(m.fields)||!liveCore.every(k=>m.fields.includes(k))||m.fields.some(k=>!liveFields.includes(k))||!Array.isArray(m.tiles)||m.tiles.length>3000||m.tiles.some(k=>!/^-?\d{1,3}_-?\d{1,3}$/.test(k)))return null;
+ if(m?.schema!==1||m.product!=='ruc-surface-analysis'||m.model!=='ICON-D2-RUC'||m.gridMapping!=='native-triangular-cells'||m.coordScale!==.00001||m.scale!==.1||m.tileStep!==1||m.missing!==-32768||!Number.isFinite(run)||!Number.isFinite(generated)||run>now||now-run>liveAge||generated<run||generated>now+60000||!Array.isArray(m.fields)||!liveCore.every(k=>m.fields.includes(k))||m.fields.some(k=>!liveFields.includes(k))||!Array.isArray(m.tiles)||m.tiles.length>3000||m.tiles.some(k=>!/^-?\d{1,3}_-?\d{1,3}$/.test(k)))return null;
  if(m.fields.includes('gust')&&(Date.parse(m.gust?.valid)!==run||![0,60].includes(m.gust?.intervalMinutes)||Date.parse(m.gust?.run)!==run-m.gust.intervalMinutes*60000))return null;
  return m;
 }
@@ -1832,12 +1831,13 @@ function decodeLiveTile(m,t,point){
  // Do not extrapolate across model boundaries or use a distant grid cell.
  if(nearest<0||distance>3500)return null;
  const values={};for(const id of m.fields){const v=packedCell(t.values[id],nearest);if(v!==undefined&&v!==m.missing&&validLiveValue(id,v*m.scale))values[id]=v*m.scale;}
- if(!Number.isFinite(values.temp2)||!Number.isFinite(values.wind))return null;
+ if(!liveCore.some(id=>Number.isFinite(values[id])))return null;
  return {run:Date.parse(m.run),generated:Date.parse(m.generated),center,distance,values,gust:m.gust||null};
 }
 async function fetchLiveAnalysis(point,force=false){
  if(!point)return;const key=pointKey(point),now=Date.now();if(liveAnalysisRequests.has(key))return liveAnalysisRequests.get(key);
- if(!force&&now-(liveAnalysisChecks.get(key)||0)<120000)return;liveAnalysisChecks.set(key,now);while(liveAnalysisChecks.size>16)liveAnalysisChecks.delete(liveAnalysisChecks.keys().next().value);
+ const cached=liveAnalysisCache.get(key),checkInterval=cached&&now-cached.run<=60*60000?120000:60000;
+ if(!force&&now-(liveAnalysisChecks.get(key)||0)<checkInterval)return;liveAnalysisChecks.set(key,now);while(liveAnalysisChecks.size>16)liveAnalysisChecks.delete(liveAnalysisChecks.keys().next().value);
  const task=(async()=>{try{
   const m=validateLiveAnalysis(await pointRead(liveAnalysisRoot,'index.json'),Date.now());if(!m)return;
   const tile=liveTileKey(point);if(!m.tiles.includes(tile))return;
@@ -1848,54 +1848,33 @@ async function fetchLiveAnalysis(point,force=false){
   if(pointKey(homeLocationPoint(location))===key)refreshLiveHero();
  }catch{}})().finally(()=>liveAnalysisRequests.delete(key));liveAnalysisRequests.set(key,task);return task;
 }
-// Instantaneous model fallback: evaluate today's forecast AT the current
-// minute, never relabel a past hourly value as a current observation.
-// All interpolated values must come from one run and one local grid cell.
-function liveEstimateFrame(f,point,now){
- if(!f||!point||f.time>now||now-f.time>liveAge)return null;
- if(f.time===now)return f;
- if(!Array.isArray(f.d?.hours)||f.d.hours[1]!==1)return null;
- const e=frameAt(f.d,point,now);
- return e?.interpolated&&e.before.time<=now&&e.after.time>=now&&e.after.time-e.before.time===3600000&&validLiveValue('temp2',frameVal(e,'temp2'))?e:null;
+// A regional model's explicitly published hour-zero initial state is an
+// analysis fallback, but any positive forecast lead is forbidden here.
+function liveInitialState(f,point,now){
+ if(!point)return null;
+ const candidates=[];
+ const add=d=>{const time=Date.parse(d?.run),generated=Date.parse(d?.generated);if(!['ICON-D2','ICON-EU'].includes(d?.model)||!d.pointNative||pointKey(d.pointLocation)!==pointKey(point)||!d.hours?.includes(0)||!Number.isFinite(time)||time>now||now-time>liveAge||!Number.isFinite(generated)||generated<time||generated>now+60000)return;const row={d,hour:0,time,point};if(validLiveValue('temp2',frameVal(row,'temp2')))candidates.push(row)};
+ if(f?.hour===0&&!f.interpolated)add(f.d);
+ for(const model of ['ICON-D2','ICON-EU'])for(const d of [...locationRuns(model,point),...quickRuns(model,point)])add(d);
+ return candidates.sort((a,b)=>b.time-a.time||Number(b.d.model==='ICON-D2')-Number(a.d.model==='ICON-D2')||Date.parse(b.d.generated)-Date.parse(a.d.generated))[0]||null;
 }
-function liveEstimateValue(e,id){
- if(!e)return NaN;
- if(id==='rh2')return frameHumidity(e);
- if(id==='winddir'&&e.interpolated){
-  const a=frameVal(e.before,id),b=frameVal(e.after,id);
-  if(!validLiveValue(id,a)||!validLiveValue(id,b))return NaN;
-  return (a+(((b-a+540)%360)-180)*e.fraction+360)%360;
- }
- return frameVal(e,id);
-}
-function liveSample(id,f,point,now,estimate=liveEstimateFrame(f,point,now)){
+function liveSample(id,f,point,now,initial=liveInitialState(f,point,now)){
  const a=point&&liveAnalysisCache.get(pointKey(point)),fresh=a&&a.run<=now&&now-a.run<=liveAge;
- if(fresh&&validLiveValue(id,a.values[id])){
+ const iv=initial&&id!=='gust'?(id==='rh2'?frameHumidity(initial):frameVal(initial,id)):NaN;
+ const nativeValid=fresh&&validLiveValue(id,a.values[id]);
+ if(validLiveValue(id,iv)&&(!nativeValid||initial.time>a.run))return {value:iv,kind:'analysis',time:initial.time,cell:point,analysisId:initial.d.model+'/'+initial.d.run,source:initial.d.model+' · '+localTime(initial.time,{hour:'2-digit',minute:'2-digit'})+' Uhr · Originalraster · Anfangszustand (+0 h)'};
+ if(nativeValid){
   const time=localTime(a.run,{hour:'2-digit',minute:'2-digit'}),source='ICON-D2-RUC · '+time+' Uhr · 2,2-km-Originalzelle';
   // Initial diagnosed gust is a model estimate; the optional previous-run
   // maximum is explicitly a completed interval, not a live measurement.
-  if(id==='gust')return {value:a.values[id],kind:a.gust?.intervalMinutes===0?'analysis':'interval',time:a.run,source:source+(a.gust?.intervalMinutes===0?' · diagnostizierte Böe zur Analysezeit':' · letzte Stunde (Modell)'),cell:a.center};
-  return {value:a.values[id],kind:'analysis',time:a.run,source:source+' · Analyse',cell:a.center};
+  if(id==='gust')return {value:a.values[id],kind:a.gust?.intervalMinutes===0?'analysis':'interval',time:a.run,source:source+(a.gust?.intervalMinutes===0?' · diagnostizierte Böe zur Analysezeit':' · letzte Stunde (Modell)'),cell:a.center,analysisId:'ICON-D2-RUC/'+a.run};
+  return {value:a.values[id],kind:'analysis',time:a.run,source:source+' · Analyse',cell:a.center,analysisId:'ICON-D2-RUC/'+a.run};
  }
- const instant=id!=='gust'&&['temp2','dew','wind','winddir','rh2','slp','cloud'].includes(id),v=instant?liveEstimateValue(estimate,id):NaN;
- if(instant&&validLiveValue(id,v)){
-  const time=localTime(now,{hour:'2-digit',minute:'2-digit'}),range=estimate.interpolated?' ('+localTime(estimate.before.time,{hour:'2-digit',minute:'2-digit'})+'–'+localTime(estimate.after.time,{hour:'2-digit',minute:'2-digit'})+')':'';
-  return {value:v,kind:'estimate',time:now,modelRun:estimate.d.run,model:estimate.d.model,source:estimate.d.model+' · '+time+' Uhr · '+(estimate.interpolated?'Interpolierte Schätzung':'Vorhersagewert')+range};
- }
- const model=f&&f.time<=now&&now-f.time<=liveAge?(id==='rh2'?frameHumidity(f):frameVal(f,id)):NaN;
- if(validLiveValue(id,model))return {value:model,kind:id==='gust'?'interval':'model',time:f.time,modelRun:f.d.run,model:f.d.model,source:f.d.model+' · '+localTime(f.time,{hour:'2-digit',minute:'2-digit'})+' Uhr · '+(id==='gust'?'Abgeschlossenes Modellintervall · Maximum':'Letzter Modellwert (nicht aktuell)')};
- return {value:NaN,kind:'missing',source:'Keine zeitnahen Rasterdaten'};
+ return {value:NaN,kind:'missing',source:'Keine frische Ortsanalyse · Vorhersage separat'};
 }
 function liveLocalWeather(f,point,now){
- let estimate=liveEstimateFrame(f,point,now);
- // Quick packets may end at the last whole hour. Try another already
- // available complete hourly run; no mixing endpoints across model runs.
- if(!estimate&&point)for(const model of forecastPriority){
-  const runs=[...locationRuns(model,point),...quickRuns(model,point)].filter(d=>d.hours?.[1]===1&&Date.parse(d.run)<=now&&now-Date.parse(d.run)<=modelAgeLimit(d.model)*3600000).sort((a,b)=>Date.parse(b.run)-Date.parse(a.run)||Number(!!b.pointNative)-Number(!!a.pointNative));
-  for(const d of runs){const e=frameAt(d,point,now),prior=e?.interpolated?e.before:e;if(prior&&(estimate=liveEstimateFrame(prior,point,now)))break}
-  if(estimate)break;
- }
- return Object.fromEntries(liveFields.map(id=>[id,liveSample(id,f,point,now,estimate)]));
+ const initial=liveInitialState(f,point,now);
+ return Object.fromEntries(liveFields.map(id=>[id,liveSample(id,f,point,now,initial)]));
 }
 let radarPhaseData=null,radarPhaseRequest=null;
 function decodeRadarPhase(d){
@@ -2656,8 +2635,8 @@ function livePhaseWeather(f,radar,phase,point,now,live=null){
 }
 function liveEscape(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function liveKind(s){return s.kind==='analysis'?'Ortsanalyse':s.kind==='estimate'?'Modellschätzung':s.kind==='interval'?'Intervallmodell':s.kind==='model'?'Letzter Modellwert':'Keine Daten'}
-function liveHeroTag(s){return s.kind==='analysis'?'LIVE-WETTER':s.kind==='estimate'?'AKTUELL · MODELL':'WETTER'}
-const liveCompatible=(a,b)=>a.kind===b.kind&&a.time===b.time&&((a.kind==='model'||a.kind==='estimate')&&a.model===b.model&&a.modelRun===b.modelRun||a.kind==='analysis'&&a.cell?.[0]===b.cell?.[0]&&a.cell?.[1]===b.cell?.[1]);
+function liveHeroTag(s){return s.kind==='analysis'?'ORTSANALYSE':'ANALYSE FEHLT'}
+const liveCompatible=(a,b)=>a.kind==='analysis'&&b.kind==='analysis'&&a.time===b.time&&a.analysisId===b.analysisId&&a.cell?.[0]===b.cell?.[0]&&a.cell?.[1]===b.cell?.[1];
 function liveMetricHTML(icon,label,s,unit){return '<div class="metric"><div class="metric-label">'+ui(icon,13)+label+' · '+liveKind(s)+'</div><strong>'+displayValue(s.value,unit)+' <span>'+unit+'</span></strong><div class="live-metric-source">'+liveEscape(s.source)+'</div></div>'}
 function liveMetricsHTML(live){return liveMetricHTML('wind','Wind',live.wind,'km/h')+liveMetricHTML('wind','Böen',live.gust,'km/h')+liveMetricHTML('drop','Feuchte',live.rh2,'%')}
 function liveHeroWeatherHTML(f,radar,point,now,live=liveLocalWeather(f,point,now)){
@@ -2667,7 +2646,8 @@ function liveHeroWeatherHTML(f,radar,point,now,live=liveLocalWeather(f,point,now
  const condition=observed.condition==='Wetterzustand nicht verfügbar'&&!f&&!radar&&!phase?(typeof navigator!=='undefined'&&navigator.onLine===false?'Offline · keine aktuellen Ortsdaten':locationRefreshTime&&now-locationRefreshTime>20000?'Ortsprognose nicht verfügbar':'Ortsprognose wird geladen …'):observed.condition;
  const rate=radar&&radar.rate>0?' · '+localFormat(radar.rate)+' mm/h (Radar '+localTime(radar.time,{hour:'2-digit',minute:'2-digit'})+')': '';
  const clouds=live.cloud.value,cloudText=Number.isFinite(clouds)?' · Bewölkung '+localFormat(clouds,0)+' % ('+liveKind(live.cloud)+')':'';
- return '<div><div class="temp">'+temperatureText(temp)+'<span>°C</span></div><div class="feels live-temp-source">'+liveEscape(live.temp2.source)+'</div><div class="condition">'+condition+'</div><div class="feels">'+(Number.isFinite(comfort.value)?'Gefühlt '+temperatureText(comfort.value)+' °C · Näherung<br>':'')+observed.source+rate+cloudText+'</div></div>'+summaryWeatherIcon(observed);
+ const age=live.temp2.kind==='analysis'?' · vor '+Math.max(0,Math.floor((now-live.temp2.time)/60000))+' min':'';
+ return '<div><div class="temp">'+temperatureText(temp)+'<span>°C</span></div><div class="feels live-temp-source">'+liveEscape(live.temp2.source+age)+'</div><div class="condition">'+condition+'</div><div class="feels">'+(Number.isFinite(comfort.value)?'Gefühlt '+temperatureText(comfort.value)+' °C · Näherung<br>':'')+observed.source+rate+cloudText+'</div></div>'+summaryWeatherIcon(observed);
 }
 const liveDetailFields={'Temperatur':['temp2','°C'],'Taupunkt':['dew','°C'],'Relative Feuchtigkeit':['rh2','%'],'Windgeschwindigkeit':['wind','km/h'],'Windböen':['gust','km/h'],'Windrichtung':['winddir','°'],'Luftdruck (NN)':['slp','hPa'],'Gesamtbewölkung':['cloud','%']};
 function liveDetailValue(label,live){const [id,unit]=liveDetailFields[label],s=live[id];return [label,displayValue(s.value,unit),unit,liveEscape(s.source)]}
@@ -3308,7 +3288,7 @@ const field=liveAreaIds[id],p=fields[field],native=nativeAreaFrame(Date.now(),fi
    const small=document.createElement('canvas'),w=90,h=40;small.width=w;small.height=h;const c=small.getContext('2d'),im=c.createImageData(w,h);
    for(let j=0;j<h;j++)for(let i=0;i<w;i++){const p=lonlat((i+.5)/w*b.w,(j+.5)/h*b.h,b),v=ready?realPoint(source.d,p,field,source.hour):NaN;if(!Number.isFinite(v))continue;
     const rgb=rgbForLive(liveColor(id,id==='temperature'?{temp:v}:{wind:v})),n=(j*w+i)*4;im.data[n]=rgb[0];im.data[n+1]=rgb[1];im.data[n+2]=rgb[2];im.data[n+3]=255;}
-   c.putImageData(im,0,0);ctx.drawImage(small,0,0,b.w,b.h);const unit=id==='temperature'?'°C':'km/h',value=ready?realPoint(source.d,point,field,source.hour):NaN;el('home-value-'+id).textContent=ready?displayValue(value,unit)+' '+unit+' · '+source.d.model:'Modellkarte lädt / keine Rasterdaten';
+   c.putImageData(im,0,0);ctx.drawImage(small,0,0,b.w,b.h);const unit=id==='temperature'?'°C':'km/h',value=ready?realPoint(source.d,point,field,source.hour):NaN;el('home-value-'+id).textContent=ready?displayValue(value,unit)+' '+unit+' · Modell '+source.d.model+' · '+localTime(source.time??Date.parse(source.d.run)+source.hour*HOUR_MS,{hour:'2-digit',minute:'2-digit'}):'Modellkarte lädt / keine Rasterdaten';
   drawHomeMapOutline(ctx,b,point);
  }
 }
