@@ -34,6 +34,11 @@ assert.equal(ev('liveSample("temp2",frame,point,now+46*60000).kind'),'missing','
 assert.ok(ev('validateLiveAnalysis(manifest,now+46*60000,lastAnalysisAge)'),'historical packet can be shown separately');
 assert.ok(ev('lastLocalAnalysis(point,now+46*60000).value') < 0,'last known actual analysis remains separate from current');
 assert.equal(ev('lastLocalAnalysis(point,now+7*3600000)'),null);
+ctx.localStorage={getItem:()=>ev('JSON.stringify({key:pointKey(point),sample})')};
+ev('liveAnalysisCache.delete(pointKey(point));restoreLocalAnalysis(point,now+46*60000)');
+assert.ok(ev('lastLocalAnalysis(point,now+46*60000).value')<0,'last known local analysis survives reopening');
+assert.equal(ev('liveSample("temp2",frame,point,now+46*60000).kind'),'missing','restored old data never becomes current');
+ev('liveAnalysisCache.set(pointKey(point),sample)');delete ctx.localStorage;
 assert.equal(ev('liveSample("temp2",{...frame,time:now+60000},[9,50],now).kind'),'missing','future forecast rejected');
 assert.equal(ev('liveSample("temp2",frame,[9,50],now).kind'),'missing','no unrelated cached location, forecast or station');
 assert.ok(Number.isNaN(ev('liveSample("temp2",frame,[9,50],now).value')));

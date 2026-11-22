@@ -1819,6 +1819,7 @@ const mobileLiveAnalysisRoot='https://raw.githubusercontent.com/colinheinz07-spe
 const liveAnalysisCache=new Map(),liveAnalysisRequests=new Map(),liveAnalysisChecks=new Map();
 const liveAge=90*60000;
 const lastAnalysisAge=6*3600000;
+const liveAnalysisStore='wetter-mobile-local-analysis-v1';
 const liveFields=['temp2','wind','gust','dew','rh2','winddir','slp','cloud'];
 const liveCore=liveFields.filter(id=>id!=='gust');
 function liveDistanceM(a,b){const rad=Math.PI/180,d=(b[1]-a[1])*rad,l=(b[0]-a[0])*rad,h=Math.sin(d/2)**2+Math.cos(a[1]*rad)*Math.cos(b[1]*rad)*Math.sin(l/2)**2;return 12742000*Math.asin(Math.sqrt(Math.min(1,h)))}
@@ -1844,6 +1845,13 @@ function decodeLiveTile(m,t,point){
  if(!liveCore.some(id=>Number.isFinite(values[id])))return null;
  return {run:Date.parse(m.run),generated:Date.parse(m.generated),center,distance,values,gust:m.gust||null};
 }
+function restoreLocalAnalysis(point,now){
+ const key=pointKey(point);if(!point||liveAnalysisCache.has(key))return;
+ try{const saved=JSON.parse(localStorage.getItem(liveAnalysisStore)),a=saved?.sample;if(saved?.key!==key||!a||!Number.isFinite(a.run)||a.run>now||now-a.run>lastAnalysisAge||!Number.isFinite(a.generated)||a.generated<a.run||a.generated>now+60000||!Array.isArray(a.center)||a.center.length!==2||!a.center.every(Number.isFinite)||liveDistanceM(point,a.center)>3500||!validLiveValue('temp2',a.values?.temp2)||Object.entries(a.values).some(([k,v])=>!liveFields.includes(k)||!validLiveValue(k,v)))return;
+  if('gust' in a.values&&(Date.parse(a.gust?.valid)!==a.run||![0,60].includes(a.gust?.intervalMinutes)||Date.parse(a.gust?.run)!==a.run-a.gust.intervalMinutes*60000))return;
+  liveAnalysisCache.set(key,a);while(liveAnalysisCache.size>6)liveAnalysisCache.delete(liveAnalysisCache.keys().next().value);
+ }catch{}
+}
 async function fetchLiveAnalysis(point,force=false){
  if(!point)return;const key=pointKey(point),now=Date.now();if(liveAnalysisRequests.has(key))return liveAnalysisRequests.get(key);
  const cached=liveAnalysisCache.get(key),checkInterval=cached&&now-cached.run<=60*60000?120000:60000;
@@ -1856,7 +1864,7 @@ async function fetchLiveAnalysis(point,force=false){
   if(!sample)return;
   const latest=liveAnalysisCache.get(key);if(latest&&(latest.run>sample.run||latest.run===sample.run&&latest.generated>=sample.generated))return;
   liveAnalysisCache.set(key,sample);while(liveAnalysisCache.size>6)liveAnalysisCache.delete(liveAnalysisCache.keys().next().value);
-  if(pointKey(homeLocationPoint(location))===key)refreshLiveHero();
+  if(pointKey(homeLocationPoint(location))===key){try{localStorage.setItem(liveAnalysisStore,JSON.stringify({key,sample}))}catch{}refreshLiveHero()}
  }catch{}};
  const task=Promise.allSettled([load(mobileLiveAnalysisRoot),load(liveAnalysisRoot)]).finally(()=>liveAnalysisRequests.delete(key));liveAnalysisRequests.set(key,task);return task;
 }
@@ -1886,6 +1894,7 @@ function liveSample(id,f,point,now,initial=liveInitialState(f,point,now)){
  return {value:NaN,kind:'missing',source:'Keine frische Ortsanalyse · Vorhersage separat'};
 }
 function liveLocalWeather(f,point,now){
+ restoreLocalAnalysis(point,now);
  const initial=liveInitialState(f,point,now);
  return Object.fromEntries(liveFields.map(id=>[id,liveSample(id,f,point,now,initial)]));
 }
@@ -2648,7 +2657,7 @@ function livePhaseWeather(f,radar,phase,point,now,live=null){
 }
 function liveEscape(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function liveKind(s){return s.kind==='analysis'?'Ortsanalyse':s.kind==='estimate'?'Modellschätzung':s.kind==='interval'?'Intervallmodell':s.kind==='model'?'Letzter Modellwert':'Keine Daten'}
-function liveHeroTag(s){return s.kind==='analysis'?'ORTSANALYSE':'ANALYSE FEHLT'}
+function liveHeroTag(s,last){return s.kind==='analysis'?'ORTSANALYSE':last?'LETZTE ANALYSE':'ANALYSE FEHLT'}
 const liveCompatible=(a,b)=>a.kind==='analysis'&&b.kind==='analysis'&&a.time===b.time&&a.analysisId===b.analysisId&&a.cell?.[0]===b.cell?.[0]&&a.cell?.[1]===b.cell?.[1];
 function liveMetricHTML(icon,label,s,unit){return '<div class="metric"><div class="metric-label">'+ui(icon,13)+label+' · '+liveKind(s)+'</div><strong>'+displayValue(s.value,unit)+' <span>'+unit+'</span></strong><div class="live-metric-source">'+liveEscape(s.source)+'</div></div>'}
 function liveMetricsHTML(live){return liveMetricHTML('wind','Wind',live.wind,'km/h')+liveMetricHTML('wind','Böen',live.gust,'km/h')+liveMetricHTML('drop','Feuchte',live.rh2,'%')}
@@ -2660,7 +2669,7 @@ function liveHeroWeatherHTML(f,radar,point,now,live=liveLocalWeather(f,point,now
  const rate=radar&&radar.rate>0?' · '+localFormat(radar.rate)+' mm/h (Radar '+localTime(radar.time,{hour:'2-digit',minute:'2-digit'})+')': '';
  const clouds=live.cloud.value,cloudText=Number.isFinite(clouds)?' · Bewölkung '+localFormat(clouds,0)+' % ('+liveKind(live.cloud)+')':'';
  const age=live.temp2.kind==='analysis'?' · vor '+Math.max(0,Math.floor((now-live.temp2.time)/60000))+' min':'',last=live.temp2.kind==='missing'?lastLocalAnalysis(point,now):null;
- return '<div><div class="temp">'+temperatureText(temp)+'<span>°C</span></div><div class="feels live-temp-source">'+liveEscape(live.temp2.source+age)+'</div>'+(last?'<div class="feels"><b>Letzte Ortsanalyse: '+temperatureText(last.value)+' °C</b> · '+localTime(last.time,{hour:'2-digit',minute:'2-digit'})+' Uhr · nicht aktuell</div>':'')+'<div class="condition">'+condition+'</div><div class="feels">'+(Number.isFinite(comfort.value)?'Gefühlt '+temperatureText(comfort.value)+' °C · Näherung<br>':'')+observed.source+rate+cloudText+'</div></div>'+summaryWeatherIcon(observed);
+ return '<div>'+(last?'<div class="feels"><b>Letzte Ortsanalyse · nicht aktuell</b></div>':'')+'<div class="temp">'+temperatureText(last?last.value:temp)+'<span>°C</span></div><div class="feels live-temp-source">'+(last?'Stand '+localTime(last.time,{hour:'2-digit',minute:'2-digit'})+' Uhr · vor '+Math.floor((now-last.time)/60000)+' min · neue Analyse wird gesucht':liveEscape(live.temp2.source+age))+'</div><div class="condition">'+condition+'</div><div class="feels">'+(Number.isFinite(comfort.value)?'Gefühlt '+temperatureText(comfort.value)+' °C · Näherung<br>':'')+observed.source+rate+cloudText+'</div></div>'+summaryWeatherIcon(observed);
 }
 const liveDetailFields={'Temperatur':['temp2','°C'],'Taupunkt':['dew','°C'],'Relative Feuchtigkeit':['rh2','%'],'Windgeschwindigkeit':['wind','km/h'],'Windböen':['gust','km/h'],'Windrichtung':['winddir','°'],'Luftdruck (NN)':['slp','hPa'],'Gesamtbewölkung':['cloud','%']};
 function liveDetailValue(label,live){const [id,unit]=liveDetailFields[label],s=live[id];return [label,displayValue(s.value,unit),unit,liveEscape(s.source)]}
@@ -2677,8 +2686,8 @@ function refreshLiveHero(){
  const p=homeLocationPoint(location),now=Date.now(),f=currentGridFrame(p,now),radar=pointRadarAt(p,now);
  const live=liveLocalWeather(f,p,now);node.innerHTML=liveHeroWeatherHTML(f,radar,p,now,live);
  const metrics=document.querySelector('#weather-left .hero .metrics');if(metrics)metrics.innerHTML=liveMetricsHTML(live);
- const badge=document.querySelector('#weather-left .hero-head .small');if(badge)badge.textContent=liveKind(live.temp2)+' · Werte mit eigener Datenzeit';
- const tag=document.querySelector('#weather-left .hero-head .tag');if(tag)tag.textContent=liveHeroTag(live.temp2);
+ const last=live.temp2.kind==='missing'?lastLocalAnalysis(p,now):null,badge=document.querySelector('#weather-left .hero-head .small');if(badge)badge.textContent=last?'Letzter bekannter Wert · nicht aktuell':liveKind(live.temp2)+' · Werte mit eigener Datenzeit';
+ const tag=document.querySelector('#weather-left .hero-head .tag');if(tag)tag.textContent=liveHeroTag(live.temp2,last);
  for(const n of document.querySelectorAll('#weather-right .parameter-value')){const label=n.querySelector('.p-label')?.textContent,row=liveDetailFields[label]?liveDetailValue(label,live):liveDerivedDetail(label,live);if(row)n.outerHTML=parameterValue(row);}
 }
 // Day-part details use the same forecast runs and intervals as the tile.
@@ -2757,7 +2766,7 @@ function renderRealWeather(){
  const now=Date.now(),f=currentGridFrame(point,now),radar=pointRadarAt(point,now),phaseDetail=localRadarPhaseDetail(f,radar,point,now);
  const days=forecastCalendarDays(point,now);
  const warnings=localWarnings(days,now,warningElevation(point),point);
- const live=liveLocalWeather(f,point,now),source=liveKind(live.temp2)+' · Werte mit eigener Datenzeit';fetchLiveAnalysis(point);
+ const live=liveLocalWeather(f,point,now),last=live.temp2.kind==='missing'?lastLocalAnalysis(point,now):null,source=last?'Letzter bekannter Wert · nicht aktuell':liveKind(live.temp2)+' · Werte mit eigener Datenzeit';fetchLiveAnalysis(point);
  const temp=frameVal(f,'temp2'),wind=frameVal(f,'wind'),dew=frameVal(f,'dew');
  const humidity=frameHumidity(f);
  const comfort=modelComfort(temp,wind,humidity);
@@ -2766,7 +2775,7 @@ function renderRealWeather(){
  const upcoming1=hourlyRainWindow(next,now,now+HOUR_MS),upcoming2=hourlyRainWindow(next,now,now+2*HOUR_MS),upcoming6=hourlyRainWindow(next,now,now+6*HOUR_MS),upcoming24=hourlyRainWindow(next.at(-1)?.end<now+24*HOUR_MS?[...next,localPrecipitationHour(point,next.at(-1).end,now)]:next,now,now+24*HOUR_MS),hasRV=next.slice(0,3).some(h=>h.radarUsed);
  const upcomingSnow1=hourlySnowBoundsWindow(next,now,now+HOUR_MS),upcomingSnow2=hourlySnowBoundsWindow(next,now,now+2*HOUR_MS);
  const freshSnowHint=(cm,end)=>cm?.[1]>0&&(cm[0]>0||next.some(h=>h.start<end&&h.end>now&&/schnee/.test(h.weather?.icon||'')))?'<span class="small">'+snowfallText(cm)+' Neuschnee · Modell</span>':'';
- const hero='<section class="panel hero"><div class="hero-head"><span class="tag">'+liveHeroTag(live.temp2)+'</span><span class="small">'+source+'</span></div><div class="hero-weather">'+liveHeroWeatherHTML(f,radar,point,now,live)+'</div><div class="metrics">'+liveMetricsHTML(live)+'</div><div class="hour-detail"><div class="detail-item">Nächste 60 Min.<b>'+quantityRange(upcoming1)+'</b>'+freshSnowHint(upcomingSnow1,now+HOUR_MS)+'</div><div class="detail-item">Nächste 120 Min.<b>'+quantityRange(upcoming2)+'</b>'+freshSnowHint(upcomingSnow2,now+2*HOUR_MS)+'</div><div class="detail-item">Niederschlagsprognose<b>'+(hasRV?'DWD RV + Modell · '+localTime(Date.parse(radarNowcastData.time),{hour:'2-digit',minute:'2-digit'}):'Modell · kein aktueller RV-Nowcast')+'</b></div></div></section>';
+ const hero='<section class="panel hero"><div class="hero-head"><span class="tag">'+liveHeroTag(live.temp2,last)+'</span><span class="small">'+source+'</span></div><div class="hero-weather">'+liveHeroWeatherHTML(f,radar,point,now,live)+'</div><div class="metrics">'+liveMetricsHTML(live)+'</div><div class="hour-detail"><div class="detail-item">Nächste 60 Min.<b>'+quantityRange(upcoming1)+'</b>'+freshSnowHint(upcomingSnow1,now+HOUR_MS)+'</div><div class="detail-item">Nächste 120 Min.<b>'+quantityRange(upcoming2)+'</b>'+freshSnowHint(upcomingSnow2,now+2*HOUR_MS)+'</div><div class="detail-item">Niederschlagsprognose<b>'+(hasRV?'DWD RV + Modell · '+localTime(Date.parse(radarNowcastData.time),{hour:'2-digit',minute:'2-digit'}):'Modell · kein aktueller RV-Nowcast')+'</b></div></div></section>';
  const night=upcomingNight(point,now),nightHint=Number.isFinite(night.originalLo??night.lo)||Number.isFinite(night.lo)?'<p class="small muted night-summary"><b>Nachtminimum: '+temperatureText(Number.isFinite(night.originalLo)?night.originalLo:night.lo)+' °C</b> · '+localIntervalLabel(night.start,night.end)+' Uhr · '+night.model+' · Lauf '+localTime(Date.parse(night.data.run),{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+(night.raster?' · '+night.raster:'')+(night.temperatureEstimated?' · zeitlich angenähert':'')+'</p>':'';
  const details=items=>items.map(([label,value])=>'<div class="detail-item">'+label+'<b>'+value+'</b></div>').join('');
  const detail=a=>{const h=a.frame;return details([['Zeitraum (Ortszeit)',localIntervalLabel(a.start,a.end)+' Uhr'],['Modell',a.model&&h?(a.model+' · Lauf '+localTime(Date.parse(h.d.run),{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+(a.raster?' · '+a.raster:'')+(a.step!==1?' · gröbere Zeitschritte':'')):'—'],['Temperatur am Intervallende',temperatureText(frameVal(h,'temp2'))+' °C'],['Neuschnee (1 h · Modell)',snowfallRangeText(a)],['Niederschlag (1 h · Wasseräquivalent)',quantityRange(a.rain)],['Niederschlagsquelle',a.rainSource],['Taupunkt',temperatureText(frameVal(h,'dew'))+' °C'],['Wind',localFormat(frameVal(h,'wind'))+' km/h'],['Böen',localFormat(frameVal(h,'gust'))+' km/h'],['Bewölkung',localFormat(frameVal(h,'cloud'))+' %'],['Luftdruck NN',localFormat(frameVal(h,'slp'))+' hPa']])};
