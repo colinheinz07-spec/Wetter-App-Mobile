@@ -29,7 +29,7 @@ const server=http.createServer((req,res)=>{
  try{
   const page=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1});
   await page.clock.setFixedTime(fixed);const errors=[],requests=[];
-  let releaseAnalysis;const analysisGate=new Promise(resolve=>releaseAnalysis=resolve);
+  let releaseAnalysis,groundFallback=false;const analysisGate=new Promise(resolve=>releaseAnalysis=resolve);
   const analysisRun='2026-11-19T18:00:00Z',analysisFields=['temp2','dew','wind','winddir','gust','rh2','slp','cloud'];
   const analysisManifest={schema:1,product:'ruc-surface-analysis',model:'ICON-D2-RUC',gridMapping:'native-triangular-cells',coordScale:.00001,scale:.1,terrainScale:1,tileStep:1,missing:-32768,run:analysisRun,generated:scan,fields:analysisFields,tiles:['13_52'],gust:{run:analysisRun,valid:analysisRun,intervalMinutes:0}};
   const coord=n=>{const b=Buffer.alloc(4);b.writeInt32LE(n);return b.toString('base64')},n16=n=>{const b=Buffer.alloc(2);b.writeInt16LE(n);return b.toString('base64')};
@@ -51,9 +51,8 @@ const server=http.createServer((req,res)=>{
     if(h)return json({schema:2,run,generated:run,hour:+h,field:k,values:fieldValue(k,+h)});
    }
    if(p.endsWith('/opera-radar.json.gz'))return json(operaPacket);
-   if(p.endsWith('/radar-phase.json.gz'))return json({schema:1,product:'HymecNG',time:scan,grid:{west:8,south:48,step:6,nx:2,ny:2,missing:255},classes:Buffer.from([7,7,7,7]).toString('base64')});
-   if(u.hostname==='api.brightsky.dev'&&p==='/weather')return json({weather:[{timestamp:analysisRun,source_id:1,condition:'rain'}],sources:[{id:1,observation_type:'forecast',wmo_station_id:'10384',station_name:'Berlin',lat:52.52,lon:13.405,height:35}]});
-   if(p.endsWith('/10384-BEOB.csv'))return route.fulfill({headers:{'access-control-allow-origin':'*'},body:'date;time;present_weather\nUTC;UTC;code\nDatum;Zeit;Wetter\n19.11.26;18:00;16'});
+   if(p.endsWith('/radar-phase.json.gz'))return groundFallback?route.fulfill({status:404,headers:{'access-control-allow-origin':'*'}}):json({schema:1,product:'HymecNG',time:scan,grid:{west:8,south:48,step:6,nx:2,ny:2,missing:255},classes:Buffer.from([7,7,7,7]).toString('base64')});
+   if(u.hostname==='api.brightsky.dev'&&p==='/weather')return json({weather:[{timestamp:analysisRun,source_id:1,condition:groundFallback?'snow':'rain'}],sources:[{id:1,observation_type:groundFallback?'current':'forecast',wmo_station_id:'10384',station_name:'Berlin',lat:52.52,lon:13.405,height:35}]});
    if(u.hostname==='opendata.dwd.de')return route.fulfill({headers:{'access-control-allow-origin':'*'},body:'<a href="composite_rv_20261119_1820.tar">Radar</a>'});
    if(u.hostname==='maps.dwd.de'){
     if(u.searchParams.get('request')==='GetMap'&&Date.parse(u.searchParams.get('time'))===Date.parse(scan)+90*60000)return route.fulfill({status:404});
@@ -82,10 +81,12 @@ const server=http.createServer((req,res)=>{
   assert.equal((await page.locator('.hour-scroll .hour strong').nth(1).innerText()).trim(),'10°');
   // Simulate the real failure: classification delivery expires but wet radar
   // and a fresh raw surface report still confirm snow; forecast rain cannot.
-  await page.evaluate(()=>{radarPhaseData=null;refreshLiveHero()});
-  await page.waitForFunction(()=>document.querySelector('.hero .condition')?.textContent==='Kräftiger Schneefall');
-  assert.match(await page.locator('.hour-scroll .hour').first().innerText(),/Kräftiger Schneefall/);
-  assert.match(await page.locator('.hero').innerText(),/DWD-POI Bodenbeobachtung Berlin/);
+  groundFallback=true;
+  await page.evaluate(async()=>{await caches.delete('wetter-live-radar-v1')});
+  await page.reload();
+  await page.waitForFunction(()=>document.querySelector('.hero .condition')?.textContent==='Schneefall'&&document.querySelector('.hero').textContent.includes('Bodenbeobachtung Berlin'));
+  assert.match(await page.locator('.hour-scroll .hour').first().innerText(),/Schneefall/);
+  assert.match(await page.locator('.hero').innerText(),/Bodenbeobachtung Berlin/);
   assert.equal((await page.locator('.hour-scroll .hour strong').first().innerText()).trim(),'-1°');
   await page.locator('[data-page="expert"]').click();
   await page.waitForFunction(()=>document.querySelector('[data-expert-availability="ICON-D2"]')?.textContent.includes('Originalraster verfügbar'));

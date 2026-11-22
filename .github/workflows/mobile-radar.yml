@@ -72,14 +72,6 @@ jobs:
               source_id=row.get('fallback_source_ids',{}).get('condition',row.get('source_id'))
               source=next((s for s in data.get('sources',[]) if s['id']==source_id),{})
               print('Oberstdorf ground evidence:',row.get('timestamp'),row.get('condition'),source.get('station_name'),source.get('observation_type'),source.get('height'))
-          for name,url in [('HymecNG','https://opendata.dwd.de/weather/radar/composite/hymecng/composite_HymecNG_LATEST_000-hd5'),('POI','https://opendata.dwd.de/weather/weather_reports/poi/10948-BEOB.csv')]:
-              req=urllib.request.Request(url,headers={'Origin':'null','User-Agent':'WetterApp/1.0'})
-              with urllib.request.urlopen(req,timeout=20) as response:
-                  print(name,'direct CORS:',response.headers.get('Access-Control-Allow-Origin'))
-                  if name=='POI':
-                      rows=[line.split(';') for line in response.read().decode('latin1').splitlines()]
-                      header=rows[0]; idx=header.index('present_weather')
-                      print('Oberstdorf raw POI latest:',rows[3][0],rows[3][1],rows[3][idx])
           PY
       - name: Publish independent validated snapshot
         env:

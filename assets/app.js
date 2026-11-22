@@ -1963,21 +1963,6 @@ function decodeObservedPhase(packet,point,height,now){
  }
  return candidates.sort((a,b)=>b.time-a.time||a.distance-b.distance)[0]||null;
 }
-function phaseStationForPoint(packet,point,height){
- return (packet?.sources||[]).filter(s=>/^[A-Z0-9_]{5}$/.test(s.wmo_station_id||'')&&Number.isFinite(s.lat)&&Number.isFinite(s.lon)&&Number.isFinite(s.height)&&Number.isFinite(height)&&Math.abs(s.height-height)<=120).map(s=>({...s,distance:111200*Math.hypot(s.lat-point[1],(s.lon-point[0])*Math.cos(point[1]*Math.PI/180))})).filter(s=>s.distance<=2000).sort((a,b)=>a.distance-b.distance)[0]||null;
-}
-// DWD POI's own present-weather codes (not WMO WW and not model codes).
-function decodePoiPhase(csv,station,now){
- const lines=String(csv).replace(/^\uFEFF/,'').trim().split(/\r?\n/).map(l=>l.split(';').map(x=>x.trim())),head=lines[0]||[],di=head.indexOf('date'),ti=head.indexOf('time'),wi=head.indexOf('present_weather');
- if(di<0||ti<0||wi<0)return null;
- const codes={1:0,2:0,3:0,4:0,5:0,6:0,7:3,8:3,9:3,10:5,11:5,12:6,13:6,14:7,15:7,16:7,17:11,18:3,19:3,20:6,21:6,22:7,23:7,24:8,25:8,26:0,29:9,30:9,31:0};
- const rows=[];for(const row of lines.slice(1)){
-  const date=/^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$/.exec(row[di]),clock=/^(\d{1,2}):(\d{2})$/.exec(row[ti]);if(!date||!clock)continue;
-  const time=Date.UTC(+date[3]+(date[3].length===2?2000:0),+date[2]-1,+date[1],+clock[1],+clock[2]),raw=Number(row[wi]),code=codes[raw];if(!Number.isInteger(code)||time>now||now-time>60*60000)continue;
-  rows.push({code,time,kind:'ground',distance:station.distance,height:station.height,intensity:[16,23].includes(raw)?'strong':raw===14?'light':null,source:'DWD-POI Bodenbeobachtung '+String(station.station_name||'Wetterstation').replace(/[<>&"']/g,'')+' · '+localTime(time,{hour:'2-digit',minute:'2-digit'})});
- }
- return rows.sort((a,b)=>b.time-a.time)[0]||null;
-}
 function observedPhaseAt(point,radar,now){
  if(!point||!(radar?.rate>0))return null;
  const phase=observedPhaseCache.get(pointKey(point));
@@ -1998,10 +1983,9 @@ async function fetchObservedPhase(point,radar,now=Date.now()){
  const task=(async()=>{try{
   const params=new URLSearchParams({lat:String(point[1]),lon:String(point[0]),max_dist:'2000',date:new Date(now-65*60000).toISOString(),last_date:new Date(now).toISOString()});
   const r=await fetch('https://api.brightsky.dev/weather?'+params,{signal:AbortSignal.timeout(8500),credentials:'omit'});if(!r.ok)return;
-  const packet=await r.json(),station=phaseStationForPoint(packet,point,height);let p=decodeObservedPhase(packet,point,height,Date.now());
-  // The hourly API can return an older model run before the observations
-  // arrive. Use its station metadata only to query the raw observation file.
-  if(station)try{const raw=await fetch('https://opendata.dwd.de/weather/weather_reports/poi/'+station.wmo_station_id+'-BEOB.csv',{signal:AbortSignal.timeout(5000),credentials:'omit',cache:'no-cache'});if(raw.ok){const observed=decodePoiPhase(new TextDecoder('iso-8859-1').decode(await raw.arrayBuffer()),station,Date.now());if(observed&&(!p||observed.time>=p.time))p=observed}}catch{}
+  // Only the CORS-enabled observation endpoint is available to browser clients.
+  // Forecast condition entries are explicitly rejected by the decoder.
+  const p=decodeObservedPhase(await r.json(),point,height,Date.now());
   if(!p)return;
   observedPhaseCache.set(key,p);while(observedPhaseCache.size>12)observedPhaseCache.delete(observedPhaseCache.keys().next().value);
   if(activePage==='weather'&&pointKey(homeLocationPoint(location))===key){refreshPointUI();refreshLiveHero()}
