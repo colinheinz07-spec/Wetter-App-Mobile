@@ -79,15 +79,6 @@ const server=http.createServer((req,res)=>{
   assert.match(await page.locator('#hour-detail').innerText(),/Temperatur aktuell\s*-1 °C/);
   assert.match(await page.locator('#hour-detail').innerText(),/Wetter aktuell\s*Schneefall/);
   assert.equal((await page.locator('.hour-scroll .hour strong').nth(1).innerText()).trim(),'10°');
-  // Simulate the real failure: classification delivery expires but wet radar
-  // and a fresh raw surface report still confirm snow; forecast rain cannot.
-  groundFallback=true;
-  await page.evaluate(async()=>{await caches.delete('wetter-live-radar-v1')});
-  await page.reload();
-  await page.waitForFunction(()=>document.querySelector('.hero .condition')?.textContent==='Schneefall'&&document.querySelector('.hero').textContent.includes('Bodenbeobachtung Berlin'));
-  assert.match(await page.locator('.hour-scroll .hour').first().innerText(),/Schneefall/);
-  assert.match(await page.locator('.hero').innerText(),/Bodenbeobachtung Berlin/);
-  assert.equal((await page.locator('.hour-scroll .hour strong').first().innerText()).trim(),'-1°');
   await page.locator('[data-page="expert"]').click();
   await page.waitForFunction(()=>document.querySelector('[data-expert-availability="ICON-D2"]')?.textContent.includes('Originalraster verfügbar'));
   assert.ok(await page.locator('[data-expert-help]').count()>=60);
@@ -144,6 +135,15 @@ const server=http.createServer((req,res)=>{
   assert.match(await page.locator('#map-interval').innerText(),/kein Tornadonachweis/);
   assert.equal(requests.filter(s=>new URL(s).pathname.endsWith('/live-imagery.json')).length,1);
   assert.ok(!requests.some(s=>/\/main\/data\/(icon-d2|icon-eu|ifs|gfs|aifs)\.json(?:\.gz)?(?:\?|$)/.test(s)),'no all-fields country package when the native packets suffice');
+  // Simulate the real failure: classification delivery expires but wet radar
+  // and a fresh ground report still confirm snow; forecast rain cannot.
+  groundFallback=true;
+  await page.evaluate(async()=>{await caches.delete('wetter-live-radar-v1')});
+  await page.reload();
+  await page.waitForFunction(()=>document.querySelector('.hero .condition')?.textContent==='Schneefall'&&document.querySelector('.hero').textContent.includes('Bodenbeobachtung Berlin'));
+  await page.waitForFunction(()=>document.querySelector('.hour-scroll .hour strong')?.textContent.trim()==='-1°');
+  assert.match(await page.locator('.hour-scroll .hour').first().innerText(),/Schneefall/);
+  assert.match(await page.locator('.hero').innerText(),/Bodenbeobachtung Berlin/);
   assert.deepEqual(errors,[]);
   console.log('Mobile UI: expert explanation/X/Escape, original grid fallback, next-step prefetch, field reuse, radar zoom/fullscreen reuse, no forecast/measurement substitution, imagery reuse and no bulk package: OK');
  }finally{await browser.close();server.close()}
