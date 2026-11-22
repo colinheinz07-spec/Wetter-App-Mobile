@@ -9,6 +9,7 @@ on:
       - 'scripts/check-mobile.cjs'
       - 'scripts/check-mobile-browser.cjs'
       - 'scripts/test-data-performance*.cjs'
+      - 'scripts/test-live-observations.cjs'
       - '.github/workflows/mobile-ui.yml'
   pull_request:
 permissions:
@@ -24,6 +25,7 @@ jobs:
           node-version: '22'
       - run: node scripts/check-mobile.cjs
       - run: node scripts/test-data-performance-unit.cjs
+      - run: node scripts/test-live-observations.cjs
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 18

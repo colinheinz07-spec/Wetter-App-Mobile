@@ -29,12 +29,18 @@ const server=http.createServer((req,res)=>{
  try{
   const page=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1});
   await page.clock.setFixedTime(fixed);const errors=[],requests=[];
+  let releaseObservations;const observationGate=new Promise(resolve=>releaseObservations=resolve);
+  let testStation;
   page.on('pageerror',e=>errors.push(e.message));
   await page.route('**/*',route=>{
    const u=new URL(route.request().url()),p=u.pathname;
    if(u.origin===url)return route.continue();
    requests.push(u.href);
    const json=data=>route.fulfill({headers:{'access-control-allow-origin':'*'},json:data});
+   if(u.hostname==='api.brightsky.dev'&&p==='/sources'){
+    testStation={id:123,observation_type:'synop',lon:+u.searchParams.get('lon'),lat:+u.searchParams.get('lat'),height:40,station_name:'Testmessstation',last_record:scan};return json({sources:[testStation]});
+   }
+   if(u.hostname==='api.brightsky.dev'&&p==='/synop')return observationGate.then(()=>json({sources:[testStation],weather:[{source_id:123,timestamp:scan,temperature:-1.2,wind_speed_10:8,wind_gust_speed_10:19.2,relative_humidity:90}]}));
    const native=p.match(/generated-native-([^/]+)\/(index\.json|point-index\.json|point-0-0\.json\.gz|(\d+)-(\w+)\.json\.gz)$/);
    const point=p.match(/generated-points-([^/]+)\/(?:anchor\/)?(point-index\.json|point-0-0\.json\.gz)$/);
    if(native||point){
@@ -55,6 +61,11 @@ const server=http.createServer((req,res)=>{
   });
   await page.goto(url+'/index.html');
   await page.waitForFunction(()=>document.querySelector('.hero .temp')?.textContent.includes('10'));
+  releaseObservations();
+  await page.waitForFunction(()=>document.querySelector('.hero .temp')?.textContent.startsWith('-1'));
+  assert.match(await page.locator('.hero .metrics').innerText(),/Böen · Messstation[\s\S]*19,2[\s\S]*Max. 10 min/);
+  assert.match(await page.locator('.hero .live-temp-source').innerText(),/Testmessstation/);
+  assert.ok((await page.locator('.hour-scroll .hour strong').allTextContents()).includes('10°'),'hourly forecast must remain the original model forecast');
   await page.locator('[data-page="expert"]').click();
   await page.waitForFunction(()=>document.querySelector('[data-expert-availability="ICON-D2"]')?.textContent.includes('Originalraster verfügbar'));
   assert.ok(await page.locator('[data-expert-help]').count()>=60);

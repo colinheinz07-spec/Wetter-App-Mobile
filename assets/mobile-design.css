@@ -292,6 +292,8 @@ a{color:var(--accent2)}
 /* Long German metric labels must not run outside the weather summary on small phones. */
 .hero .metric-label{white-space:normal;min-height:28px;align-items:flex-start;line-height:1.3;overflow-wrap:anywhere}
 .hero .metrics .metric{min-width:0}
+.hero .live-metric-source{font-size:10px;line-height:1.45;color:#d5ebf9;overflow-wrap:anywhere;margin-top:4px}
+.hero .live-temp-source{font-size:11px;line-height:1.4;overflow-wrap:anywhere;margin:3px 0 8px}
 
 /* Weather glyphs: a tight contour makes white snow/cloud strokes legible on light cards. */
 [data-theme=light] .weather-symbol{filter:drop-shadow(0 1px 0 #475569) drop-shadow(1px 0 0 #475569) drop-shadow(-1px 0 0 #475569) drop-shadow(0 -1px 0 #475569)}
