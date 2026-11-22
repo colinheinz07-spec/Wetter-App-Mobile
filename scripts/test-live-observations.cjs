@@ -34,6 +34,10 @@ assert.equal(ev('liveSample("temp2",frame,point,now+46*60000).kind'),'missing','
 assert.ok(ev('validateLiveAnalysis(manifest,now+46*60000,lastAnalysisAge)'),'historical packet can be shown separately');
 assert.ok(ev('lastLocalAnalysis(point,now+46*60000).value') < 0,'last known actual analysis remains separate from current');
 assert.equal(ev('lastLocalAnalysis(point,now+7*3600000)'),null);
+ev('const slopeRows=Array.from({length:14},(_,i)=>({h:600+i*60,t:4-i*.36,d:1000+i*100})),fit=localTerrainFit(slopeRows)');
+assert.ok(Math.abs(ev('fit.slope')+.006)<1e-8);
+assert.ok(Math.abs(ev('adjustedLocalTemperature({terrainFit:fit,modelElevation:1100,values:{temp2:1}},800)')-2.8)<1e-8);
+assert.ok(Number.isNaN(ev('adjustedLocalTemperature({terrainFit:fit,modelElevation:1100,values:{temp2:1}},200)')),'no extrapolation into unmapped terrain');
 ctx.localStorage={getItem:()=>ev('JSON.stringify({key:pointKey(point),sample})')};
 ev('liveAnalysisCache.delete(pointKey(point));restoreLocalAnalysis(point,now+46*60000)');
 assert.ok(ev('lastLocalAnalysis(point,now+46*60000).value')<0,'last known local analysis survives reopening');

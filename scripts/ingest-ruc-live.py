@@ -124,7 +124,7 @@ def main():
     parser = argparse.ArgumentParser(); parser.add_argument('--output',required=True); parser.add_argument('--previous-run')
     args=parser.parse_args()
     helper=runpy.run_path(str(HERE/'ingest-ruc-hail.py'))
-    get,runs,folder,filename,coords=(helper[k] for k in ('get','runs','folder','filename','coords'))
+    get,runs,folder,filename,coords,decode_static=(helper[k] for k in ('get','runs','folder','filename','coords','decode'))
     now=dt.datetime.now(UTC)
     for run in runs('T_2M'):
         at=dt.datetime.fromisoformat(stamp(run))
@@ -150,8 +150,20 @@ def main():
                         fields['gust']=ga*3.6;gust=dict(run=stamp(gust_run),valid=at.isoformat(),intervalMinutes=hour*60);break
                 except (OSError,ValueError,RuntimeError) as e: print('No gust field:',gust_run,hour,e,flush=True)
             terrain=None
-            try:terrain=coords('HSURF',run,identity,len(first))
-            except (OSError,ValueError,RuntimeError) as e:print('No matching model elevation:',e,flush=True)
+            # Model orography may have masked lateral boundary cells, unlike
+            # CLON/CLAT. Require the identical grid and valid interior heights,
+            # but retain those masks rather than rejecting the whole field.
+            candidates=[run]
+            try:candidates+=runs('HSURF')[:3]
+            except OSError as e:print('HSURF run list:',e,flush=True)
+            for candidate in dict.fromkeys(candidates):
+                try:
+                    ti,ta=decode_static(get(folder('HSURF',candidate)+filename(0)))
+                    usable=np.isfinite(ta)&(ta>=-500)&(ta<=9000)
+                    if ti==identity and len(ta)==len(first) and np.mean(usable)>.7:
+                        terrain=np.where(usable,ta,np.nan);break
+                    print('HSURF mismatch:',candidate,ti==identity,len(ta),float(np.mean(usable)),flush=True)
+                except (OSError,ValueError,RuntimeError) as e:print('HSURF unavailable:',candidate,e,flush=True)
             manifest=build_snapshot(args.output,lon,lat,fields,at.isoformat(),dt.datetime.now(UTC).isoformat(),gust,terrain)
             i=np.argmin(((lon-10.2761)*np.cos(np.radians(47.4084)))**2+(lat-47.4084)**2)
             print('Oberstdorf native analysis',at.isoformat(),'temperature',round(float(fields['temp2'][i]),2),'model elevation',round(float(terrain[i])) if terrain is not None else 'unavailable',flush=True)

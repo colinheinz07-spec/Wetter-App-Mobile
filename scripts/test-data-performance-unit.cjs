@@ -34,11 +34,13 @@ vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`
  const sampleTime=now-5*60000,frame={d:{model:'ICON-D2'},time:sampleTime,values:{temp2:.1,rh2:99,cloud:99,ww:61}},radar={amount:.05,rate:.6,time:sampleTime};
  const read=(f,id)=>f?.values?.[id]??NaN;
  const live=vm.createContext({atob,frameVal:read,frameHumidity:f=>read(f,'rh2'),isNightAt:()=>false,fogCondition:()=>null,frameWeather:f=>f?{icon:'11_regen_1',condition:'Regen',source:'Modell'}:{icon:null,condition:'Wetterzustand nicht verfügbar',source:'Modell'},localTime:()=> '18:25',Date:TestDate,Math,Number,frame,radar,sampleTime,now});
- vm.runInContext(chunk('let radarPhaseData=','async function fetchRadarPhase')+chunk('function currentCloudWeather(','function liveHeroWeatherHTML'),live);
+ vm.runInContext(chunk('let radarPhaseData=','async function fetchRadarPhase')+chunk('function currentCloudWeather(','function liveHeroWeatherHTML')+chunk('function phaseCodeFromModel(','function localRadarPhaseDetail'),live);
  const check=(code,name)=>assert.equal(vm.runInContext("livePhaseWeather(frame,radar,{code:"+code+",time:sampleTime},[8,50],now).condition",live),name);
  check(7,'Schneefall');check(6,'Schneeregen');check(5,'Gefrierender Regen');check(3,'Regen');
  assert.equal(vm.runInContext("livePhaseWeather(frame,radar,null,[8,50],now).condition",live),'Schneefall möglich');
  assert.equal(vm.runInContext("livePhaseWeather(null,radar,null,[8,50],now).condition",live),'Niederschlag · Art nicht bestimmt');
+ assert.equal(vm.runInContext("livePhaseWeather({...frame,time:now-2*3600000},radar,null,[8,50],now).condition",live),'Niederschlag · Art nicht bestimmt','old model rain cannot be live type');
+ assert.equal(vm.runInContext("phaseCodeFromModel(61,1,.1,-.1,99,true)",live),7,'near-freezing liquid model cannot blindly make observed radar rain');
  assert.equal(vm.runInContext("livePhaseWeather(frame,{amount:0,rate:0,time:sampleTime},{code:0,time:sampleTime},[8,50],now).condition",live),'Bedeckt');
  live.phasePacket={schema:1,product:'HymecNG',time:new Date(sampleTime).toISOString(),grid:{nx:2,ny:2,west:7,south:50,step:1,missing:255},classes:Buffer.from([0,7,6,255]).toString('base64')};
  assert.equal(vm.runInContext("const phaseGrid=decodeRadarPhase(phasePacket);radarPhaseAt(phaseGrid,[8,50],now).code",live),7);
@@ -108,7 +110,7 @@ vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`
  const pack=values=>{const b=Buffer.alloc(values.length*2);values.forEach((v,i)=>b.writeInt16LE(v,i*2));return b.toString('base64')};
  const packet=(age,values)=>({time:new Date(now-age*60000).toISOString(),grid,amount:pack(values)});
  let pixels;
- const radar=vm.createContext({console,Date:TestDate,Map,Math,Number,atob,operaRadarData:packet(8,[0,500,-32768,-32768,100,0]),swissRadarData:packet(5,[150,250,300,-32768,200,-32768]),radarPointData:packet(2,[100,200,50,25,400,100]),radarPhaseData:{time:new Date(now-2*60000).toISOString(),grid:{...grid,missing:255},classes:Buffer.from([3,3,3,3,3,3]).toString('base64')},radarNowcastData:null,document:{createElement:()=>({getContext:()=>({createImageData:(w,h)=>({data:new Uint8ClampedArray(w*h*4)}),putImageData:im=>pixels=im.data})})},scheduleMap:()=>{}});
+ const radar=vm.createContext({console,Date:TestDate,Map,Math,Number,atob,operaRadarData:packet(8,[0,500,-32768,-32768,100,0]),swissRadarData:packet(5,[150,250,300,-32768,200,-32768]),radarPointData:packet(2,[100,200,50,25,400,100]),radarPhaseData:{time:new Date(now-3*60000).toISOString(),grid:{...grid,missing:255},classes:Buffer.from([3,3,3,3,3,3]).toString('base64')},radarNowcastData:null,document:{createElement:()=>({getContext:()=>({createImageData:(w,h)=>({data:new Uint8ClampedArray(w*h*4)}),putImageData:im=>pixels=im.data})})},scheduleMap:()=>{}});
  vm.runInContext(html.match(/^function packedCell.*$/m)[0]+'\n'+chunk('const radarCoverage=','function drawRealLiveField'),radar);const r=s=>vm.runInContext(s,radar);
  const sample=(p)=>r(`pointRadarAt(${JSON.stringify(p)})`);
  assert.equal(sample([8,50]).rate,0,'dry independent primary cannot be overwritten by DWD');
@@ -119,6 +121,11 @@ vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`
  assert.equal(r('ownRadarPixel(fused,[8,50]).code'),0);assert.equal(pixels[3*4+3],0);
  assert.equal(r('ownRadarPixel(fused,[8.02,50]).rate'),3);
  assert.equal(r('ownRadarPixel(fused,[8.01,50]).rate'),5);
+ // Oberstdorf-like case: the preferred European scan is 6 minutes older
+ // than positive snow classification, with matching Swiss and DWD rates.
+ r('radarPhaseData.time=new Date(Date.now()-2*60000).toISOString();radarPhaseData.classes='+JSON.stringify(Buffer.from([7,7,7,7,7,7]).toString('base64'))+';const snowFrame=ownRadarObservation();ownRadarRaster(snowFrame)');
+ assert.match(sample([8.01,50]).source,/MeteoSwiss/);assert.equal(r('ownRadarPixel(snowFrame,[8.01,50]).code'),7);
+ assert.deepEqual(Array.from(new Uint8Array(r("radarWorkerPaint(snowFrame,'radar',ownRadarColors,RADAR_SOURCE_TOLERANCE_MS)"))),Array.from(pixels),'phase-paired worker and point map must agree');
  r('radarPointData=null;radarPhaseData=null');assert.equal(sample([8.02,50]).rate,3);assert.match(r('ownRadarObservation().source'),/OPERA/);
  r('radarPointData='+JSON.stringify(packet(2,[100,200,50,25,400,100]))+';operaRadarData.time='+JSON.stringify(new Date(now-19*60000).toISOString())+';swissRadarData=null');
  assert.match(sample([8.01,50]).source,/DWD/,'much newer measurement takes precedence');
