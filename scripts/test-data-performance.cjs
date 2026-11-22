@@ -51,6 +51,7 @@ const server=http.createServer((req,res)=>{
     if(h)return json({schema:2,run,generated:run,hour:+h,field:k,values:fieldValue(k,+h)});
    }
    if(p.endsWith('/opera-radar.json.gz'))return json(operaPacket);
+   if(p.endsWith('/radar-phase.json.gz'))return json({schema:1,product:'HymecNG',time:scan,grid:{west:8,south:48,step:6,nx:2,ny:2,missing:255},classes:Buffer.from([7,7,7,7]).toString('base64')});
    if(u.hostname==='opendata.dwd.de')return route.fulfill({headers:{'access-control-allow-origin':'*'},body:'<a href="composite_rv_20261119_1820.tar">Radar</a>'});
    if(u.hostname==='maps.dwd.de'){
     if(u.searchParams.get('request')==='GetMap'&&Date.parse(u.searchParams.get('time'))===Date.parse(scan)+90*60000)return route.fulfill({status:404});
@@ -71,6 +72,12 @@ const server=http.createServer((req,res)=>{
   assert.match(await page.locator('.hero .live-temp-source').innerText(),/ICON-D2-RUC.*Originalzelle/);
   assert.ok(!requests.some(s=>/api\.brightsky\.dev\/(sources|synop)/.test(s)),'must never query a nearby station');
   await page.waitForFunction(()=>[...document.querySelectorAll('.hour-scroll .hour strong')].some(e=>e.textContent.trim()==='10°'));
+  await page.waitForFunction(()=>document.querySelector('.hero .condition')?.textContent==='Schneefall');
+  assert.equal((await page.locator('.hour-scroll .hour strong').first().innerText()).trim(),'-1°');
+  assert.match(await page.locator('.hour-scroll .hour').first().innerText(),/Schneefall/);
+  assert.match(await page.locator('#hour-detail').innerText(),/Temperatur aktuell\s*-1 °C/);
+  assert.match(await page.locator('#hour-detail').innerText(),/Wetter aktuell\s*Schneefall/);
+  assert.equal((await page.locator('.hour-scroll .hour strong').nth(1).innerText()).trim(),'10°');
   await page.locator('[data-page="expert"]').click();
   await page.waitForFunction(()=>document.querySelector('[data-expert-availability="ICON-D2"]')?.textContent.includes('Originalraster verfügbar'));
   assert.ok(await page.locator('[data-expert-help]').count()>=60);

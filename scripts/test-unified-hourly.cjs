@@ -1,0 +1,40 @@
+'use strict';
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync('assets/app.js','utf8'),hour=3600000;
+const now=20*hour+42*60000,point=[10,47],snow={icon:'64_schneefall_nacht',condition:'Schneefall',source:'HymecNG'},rain={icon:'11_regen_1',condition:'Regen'};
+// The next morning reaches -4, the following evening -5. The raw six-hour
+// model extrema intentionally differ from the hourly endpoints.
+const temp=t=>t===21*hour?0:t>=25*hour&&t<=30*hour?-4:t>=43*hour&&t<=48*hour?-5:2;
+const data={model:'ICON-D2',run:'1970-01-01T00:00:00Z'};
+const frameAt=(d,p,time)=>({d,point:p,time,values:{temp2:temp(time)}});
+const frameVal=(f,id)=>f?.values?.[id]??NaN;
+const forecastPeriod=(p,start,n,end)=>({start,end,duration:(end-start)/hour,step:1,data,model:data.model,rows:[frameAt(data,p,start),frameAt(data,p,end)],rain:0,cloud:0,originalLo:-12,originalHi:12,originalMean:0,nativeIntervals:[],intervals:[],weather:rain});
+const context=vm.createContext({HOUR_MS:hour,frameAt,frameVal,forecastPeriod,consensusPeriod:forecastPeriod,radarForecastRows:()=>[],radarNowcastData:null,forecastIcon:()=>rain,frameWeather:()=>rain,isNightAt:()=>true,periodNewSnow:()=>0,periodNewSnowBounds:()=>[0,0],dailyWeatherFrame:()=>null,dailyBoundaries:(n,i)=>[0,6,12,18,24].map(h=>(h+i*24)*hour)});
+const start=source.indexOf('function localPrecipitationHour('),end=source.indexOf('// Colin',start),display=source.slice(source.indexOf('const periodDisplay='),source.indexOf('function consensusPeriod('));
+assert.ok(start>=0&&end>start);
+const api=vm.runInContext(display+source.slice(start,end)+'\n({applyCurrentHour,forecastCalendarDays,hourlyForecast,upcomingNight,periodDisplay,summarizeTemperatureHours,periodHourTemperature})',context);
+const live={start:20*hour,temperature:{kind:'analysis',value:-1},weather:snow,rate:.4};
+const days=api.forecastCalendarDays(point,now,live),hours=api.hourlyForecast(days,now,point);
+assert.equal(hours[0].temperature,-1);
+assert.equal(hours[0].weather.icon,snow.icon);
+assert.equal(hours[0].rain,0,'Radar intensity must not replace model accumulation');
+assert.equal(hours[0].observedRate,.4);
+assert.equal(hours[0].temperatureSample,live.temperature);
+assert.equal(hours[1].temperature,2,'Future hour stays forecast');
+assert.equal(hours[1].weather.icon,rain.icon);
+assert.equal(days[0].periods[3].lo,-1);
+assert.equal(api.periodDisplay(days[0],'lo'),-1);
+assert.equal(api.upcomingNight(days,now).lo,-4);
+assert.equal(api.periodDisplay(days[1].periods[0],'lo'),-4);
+assert.equal(api.periodDisplay(days[1],'lo'),-5);
+assert.equal(days[1].minHour.start,42*hour);
+for(const h of hours){
+ const p=days.flatMap(d=>d.periods).find(p=>p.start<=h.start&&p.end>=h.end);
+ assert.equal(p.temperatureHours.find(x=>x.start===h.start).temperature,h.temperature);
+ assert.ok(h.temperature>=p.lo&&h.temperature<=p.hi);
+}
+const missing=api.applyCurrentHour({start:live.start,temperature:0,weather:rain},{...live,temperature:{kind:'missing',value:NaN}});
+assert.equal(missing.temperature,0);assert.equal(missing.temperatureSample,null);
+assert.equal(missing.weather.icon,snow.icon);
+assert.ok(Number.isNaN(api.summarizeTemperatureHours([{temperature:-1},{temperature:NaN}]).lo));
+console.log('PASS: current analysis and radar phase override only running hour; hourly, night, four day parts and calendar day share temperature values; evening minimum distinct; missing data stays marked.');

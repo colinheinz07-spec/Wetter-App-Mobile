@@ -106,4 +106,5 @@ for(const [index,palette] of palettes.entries())for(const [name,color] of Object
 }
 console.log('PASS: full app JS, all 66 weather glyphs, light/dark CSS and contrast, core weather modules, metrics, size '+(size/1e6).toFixed(2)+' MB');
 require('./test-forecast-period-details.cjs');
+require('./test-unified-hourly.cjs');
 
