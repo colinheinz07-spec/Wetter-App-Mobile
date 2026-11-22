@@ -1,0 +1,42 @@
+name: Mobile Doppler radar observations
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['scripts/ingest-doppler.py', 'scripts/test-doppler.py', '.github/workflows/doppler-radar.yml']
+  schedule:
+    - cron: '3-58/5 * * * *'
+permissions:
+  contents: write
+concurrency:
+  group: mobile-doppler-data
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install h5py numpy pillow pyproj
+      - run: python scripts/test-doppler.py
+      - run: python scripts/ingest-doppler.py "$RUNNER_TEMP/doppler-output"
+      - name: Publish validated scans
+        run: |
+          git config user.name 'Wetter Mobile Data'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          if git ls-remote --exit-code --heads origin doppler-data; then
+            git fetch origin doppler-data
+            git worktree add --detach "$RUNNER_TEMP/doppler-publish" FETCH_HEAD
+          else
+            git worktree add --detach "$RUNNER_TEMP/doppler-publish" HEAD
+            git -C "$RUNNER_TEMP/doppler-publish" switch --orphan doppler-data
+          fi
+          cd "$RUNNER_TEMP/doppler-publish"
+          git ls-files '*.json' -z | xargs -0 -r git rm --
+          cp "$RUNNER_TEMP/doppler-output/"*.json .
+          git add -- *.json
+          git diff --cached --quiet || git commit -m 'Refresh validated Doppler sweeps'
+          git push origin HEAD:refs/heads/doppler-data

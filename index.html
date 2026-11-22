@@ -42,7 +42,7 @@
       <div class="panel map-panel">
         <div class="section-head" id="map-normal-head"><div><div class="parameter-title-row"><h2 id="map-layer-title">Temperatur · 2 m</h2><button type="button" class="parameter-help" id="map-parameter-help" aria-label="Aktuellen Kartenparameter erklären" hidden>ⓘ</button></div><p id="map-view-description">Modellkarte · synthetische Testfelder</p></div><div class="map-normal-actions"><span class="badge" id="map-model-badge">ICON-D2</span><button class="map-expand" id="map-full-open" aria-label="Vollbild öffnen">⛶</button></div></div>
         <div class="map-full-toolbar"><button id="map-full-close" aria-label="Karte schließen">‹</button><div class="map-full-title"><strong id="map-full-title">Wetterkarte</strong><small id="map-full-subtitle">DEMO</small></div><button id="map-info-toggle" aria-label="Karteninformationen" aria-expanded="false">ⓘ</button></div>
-        <div class="map-full-layer-tabs" id="map-full-layer-tabs" hidden><button data-full-layer="radar">Radar</button><button data-full-layer="reflectivity">dBZ</button><button data-full-layer="satellite">Satellit</button><button data-full-layer="temperature">Temperatur</button><button data-full-layer="wind">Wind</button></div>
+        <div class="map-full-layer-tabs" id="map-full-layer-tabs" hidden><button data-full-layer="radar">Radar</button><button data-full-layer="reflectivity">dBZ</button><button data-full-layer="doppler">Doppler</button><button data-full-layer="satellite">Satellit</button><button data-full-layer="temperature">Temperatur</button><button data-full-layer="wind">Wind</button></div>
         <details class="map-settings-fold"><summary>Modell, Parameter & Karteneinstellungen</summary><div id="map-settings">
         <label class="map-select" style="margin-bottom:12px"><span>Grundkarte</span><select id="map-terrain-mode" aria-label="Grundkarte"><option value="weather-relief" selected>Wetter + topografisches Relief</option><option value="topo">Topografische Karte</option><option value="weather">Nur Wetterfarben</option></select></label>
         <div class="map-toolbar" id="map-weather-controls">
@@ -54,7 +54,8 @@
         <div id="map-live-controls" hidden>
           <div class="live-map-controls">
             <label class="map-select"><span>Live-Datenquelle</span><select id="map-live-data-mode"><option value="real">Echte Daten (DWD / EUMETSAT)</option><option value="demo">Demo</option></select></label>
-            <label class="map-select"><span>Live-Ebene</span><select id="map-live-layer" aria-label="Live-Wetter-Ebene"><option value="radar">Niederschlagsradar</option><option value="reflectivity">Radarreflektivität · dBZ</option><option value="satellite">Meteosat · GeoColour</option><option value="temperature">Temperatur · Modell</option><option value="wind">Wind · Modell</option><option value="types">Niederschlagsart · Regen / Schnee / Eis / Hagel</option><option value="snowfall">Schneefall</option><option value="snowcover">Schneehöhe · Modell</option><option value="lightning">Blitzaktivität</option></select></label>
+            <label class="map-select"><span>Live-Ebene</span><select id="map-live-layer" aria-label="Live-Wetter-Ebene"><option value="radar">Niederschlagsradar</option><option value="reflectivity">Radarreflektivität · dBZ</option><option value="doppler">Doppler · Radialwind</option><option value="satellite">Meteosat · GeoColour</option><option value="temperature">Temperatur · Modell</option><option value="wind">Wind · Modell</option><option value="types">Niederschlagsart · Regen / Schnee / Eis / Hagel</option><option value="snowfall">Schneefall</option><option value="snowcover">Schneehöhe · Modell</option><option value="lightning">Blitzaktivität</option></select></label>
+            <label class="map-select" id="doppler-site-control" hidden><span>Radarstandort</span><select id="doppler-site" aria-label="Doppler-Radarstandort"><option value="auto">Automatisch · nahe Kartenmitte</option></select></label>
             <label class="map-select"><span>Demo-Wetterlage</span><select id="map-live-scenario" aria-label="Beispielwetterlage"><option value="winter">Winterlage</option><option value="summer">Sommergewitter</option></select></label>
             <label class="live-overlay"><input type="checkbox" id="map-live-lightning"> Blitze überlagern</label>
             <label class="live-overlay"><input type="checkbox" id="map-live-symbols" checked> Wintersymbole</label>
@@ -123,7 +124,7 @@
 <script src="assets/basemap.js"></script>
 <script src="assets/geography.js"></script>
 <script src="assets/weather-icons.js?v=20261122-snow-crystals"></script>
-<script src="assets/app.js?v=20261122-live-analysis-strict"></script>
+<script src="assets/app.js?v=20261122-fast-doppler"></script>
 <script src="assets/hazards.js" defer></script>
 <script src="assets/national-warnings.js?v=20261122-radar-verbund" defer></script>
 </body>
