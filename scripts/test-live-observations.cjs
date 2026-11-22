@@ -1,16 +1,19 @@
 'use strict';
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
-const source=fs.readFileSync('assets/app.js','utf8'),chunk=(a,b)=>source.slice(source.indexOf(a),source.indexOf(b));
+const source=fs.readFileSync(fs.existsSync('assets/app.js')?'assets/app.js':'index.html','utf8'),chunk=(a,b)=>source.slice(source.indexOf(a),source.indexOf(b));
 const now=Date.parse('2026-11-22T10:45:00Z'),point=[7.84,50.55],other=[7.88,50.55];
 const pack=(arr,width)=>{const b=Buffer.alloc(arr.length*width);arr.forEach((v,i)=>width===4?b.writeInt32LE(v,i*4):b.writeInt16LE(v,i*2));return b.toString('base64')};
 const run='2026-11-22T10:00:00Z',generated='2026-11-22T10:40:00Z',fields=['temp2','dew','wind','winddir','rh2','slp','cloud','gust'];
 const manifest={schema:1,product:'ruc-surface-analysis',model:'ICON-D2-RUC',gridMapping:'native-triangular-cells',coordScale:.00001,scale:.1,tileStep:1,missing:-32768,run,generated,tiles:['7_50'],fields,gust:{run,valid:run,intervalMinutes:0}};
 const tile={schema:1,key:'7_50',run,generated,count:2,lon:pack([784000,788000],4),lat:pack([5055000,5055000],4),values:Object.fromEntries(fields.map(k=>[k,pack(k==='temp2'?[-12,39]:k==='wind'?[0,100]:k==='gust'?[192,327]:k==='slp'?[10130,10140]:[50,60],2)]))};
+const frameVal=(f,id)=>f?.interpolated?frameVal(f.before,id)+(frameVal(f.after,id)-frameVal(f.before,id))*f.fraction:f?.values?.[id]??f?.d?.samples?.[f.hour]?.[id]??NaN;
 const ctx=vm.createContext({now,point,other,manifest,tile,Map,Math,Number,Date,atob,console,
- pointKey:p=>p?.join(',')||'',localTime:v=>new Date(v).toISOString().slice(11,16),frameVal:(f,id)=>f?.values?.[id]??NaN,frameHumidity:f=>f?.values?.rh2??NaN,
+ HOUR_MS:3600000,forecastPriority:['ICON-D2'],locationRuns:()=>[],quickRuns:()=>[],modelAgeLimit:()=>12,
+ pointKey:p=>p?.join(',')||'',localTime:v=>new Date(v).toISOString().slice(11,16),frameVal,frameHumidity:f=>frameVal(f,'rh2'),
  stationData:{stations:[{temp:99,lon:point[0],lat:point[1]}]},location:{},homeLocationPoint:()=>point,refreshLiveHero:()=>{},pointRead:()=>Promise.resolve(null)});
 const ev=s=>vm.runInContext(s,ctx);
 ev(source.match(/function packedCell\(packed,n\)\{[^\n]+/)[0]);
+ev(chunk('const frameAt=','function forecastCandidates('));
 ev(chunk('const liveAnalysisRoot=','let radarPhaseData='));
 ev(`const m=validateLiveAnalysis(manifest,now),sample=decodeLiveTile(m,tile,point),sampleOther=decodeLiveTile(m,tile,other);
  liveAnalysisCache.set(pointKey(point),sample);liveAnalysisCache.set(pointKey(other),sampleOther);
@@ -31,7 +34,28 @@ assert.equal(ev('liveSample("temp2",frame,point,now+46*60000).kind'),'missing','
 assert.equal(ev('liveSample("temp2",{...frame,time:now+60000},[9,50],now).kind'),'missing','future forecast rejected');
 assert.equal(ev('liveSample("temp2",frame,[9,50],now).kind'),'model','no unrelated cached location or station');
 assert.equal(ev('liveSample("temp2",frame,[9,50],now).value'),10);
+assert.match(ev('liveSample("temp2",frame,[9,50],now).source'),/nicht aktuell/);
+ev(`const evening=Date.parse('2026-11-22T16:56:00Z'),start=Date.parse('2026-11-22T16:00:00Z'),p=[9,50],
+ d={model:'ICON-D2',run:new Date(start).toISOString(),hours:[0,1],samples:{0:{temp2:3,wind:5.8,gust:14,rh2:82.5,cloud:100,winddir:350},1:{temp2:2,wind:6.2,gust:11.5,rh2:84,cloud:50,winddir:10}}},
+ prior={d,point:p,hour:0,time:start},weatherNow=liveLocalWeather(prior,p,evening);`);
+assert.ok(Math.abs(ev('weatherNow.temp2.value')-2.0666666667)<1e-8);
+assert.ok(Math.abs(ev('weatherNow.wind.value')-6.1733333333)<1e-8);
+assert.equal(ev('weatherNow.temp2.time'),Date.parse('2026-11-22T16:56:00Z'));
+assert.equal(ev('weatherNow.temp2.kind'),'estimate');
+assert.match(ev('weatherNow.temp2.source'),/16:56 Uhr · Interpolierte Schätzung \(16:00–17:00\)/);
+assert.ok(Math.abs(ev('weatherNow.winddir.value')-8.6666666667)<1e-8,'circular direction crosses north');
+assert.equal(ev('weatherNow.gust.value'),14,'gust is a completed interval, never interpolated');
+assert.equal(ev('weatherNow.gust.time'),Date.parse('2026-11-22T16:00:00Z'));
+assert.equal(ev('weatherNow.gust.kind'),'interval');
+assert.equal(ev('liveSample("temp2",prior,p,start).kind'),'estimate','exact forecast is not analysis');
+assert.equal(ev('liveSample("temp2",{...prior,d:{...d,hours:[0,3]}},p,evening).kind'),'model','no fabricated coarse hourly interpolation');
+assert.equal(ev('liveSample("temp2",{...prior,d:{...d,samples:{0:d.samples[0]}}},p,evening).kind'),'model','missing future endpoint not fabricated');
+assert.equal(ev('liveSample("temp2",{...prior,time:start+3600000},p,evening).kind'),'missing','future single endpoint not presented as now');
+assert.equal(ev('liveSample("temp2",prior,p,evening+3600000).kind'),'missing','stale estimate not extrapolated');
+ctx.locationRuns=()=>[ev('d')];
+assert.equal(ev('liveLocalWeather({...prior,d:{...d,hours:[0],samples:{0:d.samples[0]}}},p,evening).temp2.kind'),'estimate','another complete cached hourly run can fill a missing endpoint');
+assert.ok(Math.abs(ev('liveLocalWeather({...prior,d:{...d,hours:[0],samples:{0:d.samples[0]}}},p,evening).temp2.value')-2.0666666667)<1e-8);
 ev('sample.gust={run:"2026-11-22T09:00:00Z",valid:m.run,intervalMinutes:60}');
 assert.equal(ev('liveSample("gust",frame,point,now).kind'),'interval');
 assert.match(ev('liveSample("gust",frame,point,now).source'),/letzte Stunde/);
-console.log('PASS: native point selection, two distinct local values, no station substitution, missing/future/stale rejection, gust semantics and forecast independence.');
+console.log('PASS: native point selection, minute interpolation, wind direction, missing/future/stale rejection, no station substitution, independent gust intervals.');
