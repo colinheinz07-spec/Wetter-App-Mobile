@@ -70,7 +70,7 @@ const server=http.createServer((req,res)=>{
   assert.match(await page.locator('.hero .metrics').innerText(),/Böen · Ortsanalyse[\s\S]*19,2[\s\S]*diagnostizierte Böe/);
   assert.match(await page.locator('.hero .live-temp-source').innerText(),/ICON-D2-RUC.*Originalzelle/);
   assert.ok(!requests.some(s=>/api\.brightsky\.dev\/(sources|synop)/.test(s)),'must never query a nearby station');
-  assert.ok((await page.locator('.hour-scroll .hour strong').allTextContents()).includes('10°'),'hourly forecast must remain the original model forecast');
+  await page.waitForFunction(()=>[...document.querySelectorAll('.hour-scroll .hour strong')].some(e=>e.textContent.trim()==='10°'));
   await page.locator('[data-page="expert"]').click();
   await page.waitForFunction(()=>document.querySelector('[data-expert-availability="ICON-D2"]')?.textContent.includes('Originalraster verfügbar'));
   assert.ok(await page.locator('[data-expert-help]').count()>=60);
