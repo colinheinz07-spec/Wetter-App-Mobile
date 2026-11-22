@@ -58,10 +58,13 @@ const server=http.createServer((req,res)=>{
    }
    if(p.endsWith('/stations.json'))return json({schema:1,stations:[],radarBase:scan,radarImage:{time:scan,bounds:[2,45,18,57],png}});
    if(p.endsWith('/live-imagery.json'))return json({schema:1,products:{reflectivity:{time:scan,bounds:[2,45,18,57],png,source:'DWD'},satellite:{time:scan,bounds:[2,45,18,57],png,source:'EUMETSAT'}}});
+   if(p.endsWith('/doppler-data/index.json'))return json({schema:1,sites:[{site:'ess',time:scan,lon:7,lat:51,elevation:.5,file:'ess-20261119T182000Z.json'}]});
+   if(p.endsWith('/doppler-data/ess-20261119T182000Z.json'))return json({schema:1,site:'ess',time:scan,lon:7,lat:51,elevation:.5,bounds:[5,49,9,53],png,source:'DWD VRADH · ESS'});
    return route.fulfill({status:404,headers:{'access-control-allow-origin':'*'}});
   });
   await page.goto(url+'/index.html');
-  await page.waitForFunction(()=>document.querySelector('.hero .temp')?.textContent.includes('10'));
+  await page.waitForFunction(()=>document.querySelector('.hero .live-temp-source'));
+  assert.ok(!(await page.locator('.hero .temp').innerText()).includes('10'),'forecast temperature must not appear as current while the measured local analysis is pending');
   releaseAnalysis();
   await page.waitForFunction(()=>document.querySelector('.hero .temp')?.textContent.startsWith('-1'));
   assert.match(await page.locator('.hero .metrics').innerText(),/Böen · Ortsanalyse[\s\S]*19,2[\s\S]*diagnostizierte Böe/);
@@ -119,10 +122,12 @@ const server=http.createServer((req,res)=>{
   await page.waitForFunction(()=>document.querySelector('#map-data-notice').textContent==='Beobachtung');
   await page.locator('[data-full-layer="satellite"]').click();
   await page.waitForFunction(()=>document.querySelector('#map-data-notice').textContent==='Beobachtung');
+  await page.locator('[data-full-layer="doppler"]').click();
+  await page.waitForFunction(()=>document.querySelector('#map-data-notice').textContent==='Beobachtung');
+  assert.match(await page.locator('#map-interval').innerText(),/kein Tornadonachweis/);
   assert.equal(requests.filter(s=>new URL(s).pathname.endsWith('/live-imagery.json')).length,1);
   assert.ok(!requests.some(s=>/\/main\/data\/(icon-d2|icon-eu|ifs|gfs|aifs)\.json(?:\.gz)?(?:\?|$)/.test(s)),'no all-fields country package when the native packets suffice');
   assert.deepEqual(errors,[]);
   console.log('Mobile UI: expert explanation/X/Escape, original grid fallback, next-step prefetch, field reuse, radar zoom/fullscreen reuse, no forecast/measurement substitution, imagery reuse and no bulk package: OK');
  }finally{await browser.close();server.close()}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1});
-

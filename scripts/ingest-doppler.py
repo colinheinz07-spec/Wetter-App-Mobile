@@ -90,7 +90,7 @@ def fetch_site(site):
     url = ROOT+site+'/hdf5/filter_polarimetric/'
     with urllib.request.urlopen(url,timeout=20) as response:
         html=response.read().decode()
-    files = sorted(set(re.findall(r'href="(ras[^"/]*_vradh_00-\d{12}[^"/]*\.h5)"',html)),reverse=True)
+    files = sorted(set(re.findall(r'href="(ras[^"/]*_vradh_00-\d{12}[^"/]*(?:-hd5|\.h5))"',html)),reverse=True)
     if not files:
         raise ValueError('No VRADH file in directory')
     for name in files[:2]:
