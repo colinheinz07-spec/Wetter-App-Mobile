@@ -135,7 +135,7 @@ const mask=new Uint8Array(193*165);function germanCell(i){if(!mask[i]){const g=r
 let radarCache={key:'',rows:[]};
 function radarRows(){try{const rows=radarObservationSources(),key=rows.map(s=>s.source+' '+s.time).join('|');if(key===radarCache.key)return radarCache.rows;
  radarCache={key,rows:rows.map(s=>({...s,raw:atob(s.amount)}))};return radarCache.rows}catch{return []}}
-function rateAt(rows,p){let rate=NaN,time=0;for(const s of rows){const g=s.grid,n=cellsForPoint(g,p);if(n<0)continue;const v=(s.raw.charCodeAt(n*2)|(s.raw.charCodeAt(n*2+1)<<8))<<16>>16;if(v<0)continue;if(Number.isFinite(rate)&&time-s.time>300000)break;if(v>0)return v*g.scale*s.rateFactor;if(!Number.isFinite(rate)){rate=0;time=s.time}}return rate}
+function rateAt(rows,p){let rate=NaN,latest=-Infinity,priority=Infinity;for(const s of rows){const g=s.grid,n=cellsForPoint(g,p);if(n<0)continue;const v=(s.raw.charCodeAt(n*2)|(s.raw.charCodeAt(n*2+1)<<8))<<16>>16;if(v<0)continue;if(latest===-Infinity)latest=s.time;if(latest-s.time>600000)break;const rank=s.priority??2;if(rank<priority){rate=v*g.scale*s.rateFactor;priority=rank}}return rate}
 function rectPath(lon,lat,w,h){const [x,y]=project(lon,lat).map(rounded);return `M${x},${y}h${rounded(w*MAP_DX)}v${rounded(h*MAP_DY)}h-${rounded(w*MAP_DX)}Z`}
 function draw(){
  const geo=getGeometry(),dark=document.documentElement.dataset.theme!=='light';

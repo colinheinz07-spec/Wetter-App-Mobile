@@ -2628,8 +2628,8 @@ function livePhaseWeather(f,radar,phase,point,now,live=null){
  const make=(icon,condition,source)=>({icon,condition,source});
  const snow=rate>=2?'22_schnee_3':night?'64_schneefall_nacht':rate>=.5?'21_schnee_2':'20_schnee_1';
  const rain=rate>=4?'14_regen_4':night?'65_regen_nacht':rate>=1?'12_regen_2':'11_regen_1';
- // A newer conflicting RY scan invalidates a substantially older phase scan.
- if(phase&&radar&&(Math.abs(radar.time-phase.time)>5*60000||(phase.time!==radar.time&&((phase.code===0&&wet)||(phase.code>=2&&!wet)))))phase=null;
+ // A phase product may classify an existing echo, never overrule a measured dry cell.
+ if(phase&&radar&&(Math.abs(radar.time-phase.time)>5*60000||(phase.code===0&&wet)||(phase.code>=2&&!wet)))phase=null;
  if(phase){
   const source='DWD HymecNG · '+localTime(phase.time,{hour:'2-digit',minute:'2-digit'});
   if(phase.code===0&&!wet)return {...currentCloudWeather(f,point,now,live),source:source+' · kein Niederschlag'};
@@ -3044,7 +3044,7 @@ function modelPhaseAtPoint(f,wet=true){
 }
 function localRadarPhaseDetail(f,radar,point,now){
  const ph=radarPhaseAt(radarPhaseData,point,now);
- if(ph&&ph.code!==1&&(!radar||Math.abs(radar.time-ph.time)<=5*60000)&&!(radar?.rate>0&&ph.code===0))return {name:radarTypeNames[ph.code],source:'DWD HymecNG · '+localTime(ph.time,{hour:'2-digit',minute:'2-digit'})};
+ if(ph&&ph.code!==1&&(!radar||Math.abs(radar.time-ph.time)<=5*60000)&&!(radar?.rate>0&&ph.code===0)&&!(radar?.rate===0&&ph.code>=2))return {name:radarTypeNames[ph.code],source:'DWD HymecNG · '+localTime(ph.time,{hour:'2-digit',minute:'2-digit'})};
  if(radar&&radar.rate===0)return {name:'Trocken im Radar',source:radar.source||'DWD RY'};
  const frames=[f,...(typeof forecastPriority!=='undefined'?forecastPriority.map(m=>currentGridFrame(point,now,[m])):[])].filter(x=>x&&now-x.time<=3*3600000);
  for(const frame of frames){
@@ -3117,38 +3117,44 @@ const ownRadarColors={
 function ownRadarTier(rate){return rate<.5?0:rate<2?1:rate<5?2:rate<15?3:4}
 function ownRadarMatch(a,b){return !!a&&!!b&&['nx','ny','west','south','step'].every(k=>Math.abs(a[k]-b[k])<1e-8)}
 function ownRadarFresh(d,minutes=20,now=Date.now()){const t=Date.parse(d?.time);return Number.isFinite(t)&&t<=now&&now-t<=minutes*60000}
-// Independent measured rates: European OPERA and Switzerland are separate
-// composites. A positive observation can fill a blind/dry pixel in another
-// network, but only when scans are at most five minutes apart. No maximum
-// intensity blending, no invented rain, no substitution of missing by zero.
+// Independent delivery paths: European OPERA and Switzerland provide
+// complementary composites. Pick a valid per-cell measurement based on
+// priority and recency, retaining an observed zero and marking missing data.
 function radarObservationSources(now=Date.now()){
  const rows=[
-  [typeof operaRadarData==='undefined'?null:operaRadarData,1,'EUMETNET OPERA · CC BY 4.0'],
-  [typeof swissRadarData==='undefined'?null:swissRadarData,1,'MeteoSwiss PRECIP'],
-  [typeof radarPointData==='undefined'?null:radarPointData,12,typeof radarPointData!=='undefined'?(radarPointData?.source||'DWD RY'):'DWD RY']
+  [typeof operaRadarData==='undefined'?null:operaRadarData,1,'EUMETNET OPERA · CC BY 4.0',0],
+  [typeof swissRadarData==='undefined'?null:swissRadarData,1,'MeteoSwiss PRECIP',1],
+  [typeof radarPointData==='undefined'?null:radarPointData,12,typeof radarPointData!=='undefined'?(radarPointData?.source||'DWD RY'):'DWD RY',2]
  ];
- return rows.filter(([d])=>ownRadarFresh(d,20,now)).map(([d,factor,source])=>({time:Date.parse(d.time),grid:d.grid,amount:d.amount,rateFactor:factor,source})).sort((a,b)=>b.time-a.time);
+ return rows.filter(([d])=>ownRadarFresh(d,20,now)).map(([d,factor,source,priority])=>({time:Date.parse(d.time),grid:d.grid,amount:d.amount,rateFactor:factor,source,priority})).sort((a,b)=>b.time-a.time||a.priority-b.priority);
+}
+// European composite first, Swiss national composite second; DWD is a
+// supplementary source. A substantially newer valid measurement can take
+// precedence; missing pixels fall back geographically, never to invented rain.
+const RADAR_SOURCE_TOLERANCE_MS=10*60000;
+function selectRadarSample(rows){
+ const samples=(rows||[]).filter(Boolean);if(!samples.length)return null;
+ const latest=Math.max(...samples.map(s=>s.time));
+ return samples.filter(s=>latest-s.time<=RADAR_SOURCE_TOLERANCE_MS).reduce((best,s)=>!best||(s.priority??2)<(best.priority??2)||(s.priority??2)===(best.priority??2)&&s.time>best.time?s:best,null);
 }
 function radarSourceCell(source,point){
  const g=source.grid,x=Math.round((point[0]-g.west)/g.step),y=Math.round((point[1]-g.south)/g.step);
  if(x<0||y<0||x>=g.nx||y>=g.ny)return null;
  const v=packedCell(source.amount,y*g.nx+x);if(!Number.isFinite(v)||v<0)return null;
- return {rate:v*g.scale*source.rateFactor,amount:source.rateFactor===12?v*g.scale:NaN,time:source.time,source:source.source,instantaneous:source.rateFactor===1};
+ return {rate:v*g.scale*source.rateFactor,amount:source.rateFactor===12?v*g.scale:NaN,time:source.time,source:source.source,priority:source.priority,instantaneous:source.rateFactor===1};
 }
 function pointRadarAt(point,now=Date.now()){
  if(!point)return null;
- const valid=radarObservationSources(now).map(s=>radarSourceCell(s,point)).filter(Boolean);
- const latest=Math.max(...valid.map(s=>s.time)),matched=valid.filter(s=>latest-s.time<=5*60000);
- return matched.find(s=>s.rate>0)||matched[0]||null;
+ return selectRadarSample(radarObservationSources(now).map(s=>radarSourceCell(s,point)));
 }
 function ownRadarObservation(){
  const sources=radarObservationSources(),latest=Math.max(...sources.map(s=>s.time));
  const ph=typeof radarPhaseData!=='undefined'&&ownRadarFresh(radarPhaseData)?radarPhaseData:null;
  const base=sources.find(s=>s.time===latest),pt=Date.parse(ph?.time);
- if(!base)return ph?{time:pt,grid:ph.grid,classes:ph.classes,phaseTime:pt,source:'DWD HymecNG',key:'phase/'+pt}:null;
+ if(!base)return null; // A phase classification alone is not a measured intensity raster.
  const rateSources=sources.filter(s=>ownRadarMatch(base.grid,s.grid));
  const phase=ph&&rateSources.some(s=>Math.abs(s.time-pt)<=5*60000)&&ownRadarMatch(base.grid,ph.grid)?ph:null;
- return {time:latest,grid:base.grid,amount:base.amount,rateFactor:base.rateFactor,rateSources,classes:phase?.classes,phaseTime:phase?pt:null,source:rateSources.map(s=>s.source).join(' + ')+(phase?' + DWD HymecNG':''),key:'multi/'+rateSources.map(s=>s.source+'/'+s.time).join('|')+'/'+(phase?pt:'model')};
+ return {time:latest,grid:base.grid,amount:base.amount,rateFactor:base.rateFactor,rateSources,classes:phase?.classes,phaseTime:phase?pt:null,source:[...rateSources].sort((a,b)=>a.priority-b.priority).map(s=>s.source).join(' + ')+(phase?' · Phase: DWD HymecNG':''),key:'multi-priority/'+rateSources.map(s=>s.source+'/'+s.time).join('|')+'/'+(phase?pt:'model')};
 }
 function ownRadarFrame(date,latest=false){
  const obs=ownRadarObservation();if(obs&&(latest||obs.time===date.getTime()))return ownRadarWithModels(obs);
@@ -3165,10 +3171,11 @@ function ownRadarFrame(date,latest=false){
 }
 function ownRadarPixel(frame,point){
  const g=frame.grid,x=Math.round((point[0]-g.west)/g.step),y=Math.round((point[1]-g.south)/g.step);if(x<0||x>=g.nx||y<0||y>=g.ny)return null;
- const n=y*g.nx+x,rows=frame.rateSources?.map(s=>radarSourceCell(s,point)).filter(Boolean),sample=rows?.find(s=>s.rate>0&&rows[0].time-s.time<=5*60000)||rows?.[0],v=!frame.rateSources&&frame.amount?packedCell(frame.amount,n):NaN,rate=sample?sample.rate:v>=0?v*g.scale*(frame.rateFactor??12):NaN;
+ const n=y*g.nx+x,sample=selectRadarSample(frame.rateSources?.map(s=>radarSourceCell(s,point))),v=!frame.rateSources&&frame.amount?packedCell(frame.amount,n):NaN,rate=sample?sample.rate:v>=0?v*g.scale*(frame.rateFactor??12):NaN;
  const time=sample?.time??frame.time,source=sample?.source??frame.source,code=frame.classes&&Math.abs(time-frame.phaseTime)<=5*60000?atob(frame.classes.slice(Math.floor(n/3)*4,Math.floor(n/3)*4+4)).charCodeAt(n%3):255;
- if(code>=2&&code<=10&&(!Number.isFinite(rate)||rate>0||frame.phaseTime===time))return {code,rate,estimated:false,source,time};
- if(rate===0||code===0&&!Number.isFinite(rate))return {code:0,rate,estimated:false,source,time};
+ if(!Number.isFinite(rate))return null;
+ if(rate===0)return {code:0,rate,estimated:false,source,time};
+ if(rate>0&&code>=2&&code<=10)return {code,rate,estimated:false,source,time};
  if(rate>0){const modelCode=radarModelPhase(frame.models,...point);return {code:modelCode,rate,estimated:modelCode>1,source,time};}
  if(code===1)return {code:1,rate,estimated:false,source,time};return null;
 }
@@ -3196,19 +3203,18 @@ function ownRadarRaster(frame,mode='radar'){
  // Build the RGBA lookup using typed arrays (native byte order).
  const palette={};for(const [code,colors] of Object.entries(ownRadarColors))palette[code]=colors.map(hex=>{const v=parseInt(hex.slice(1),16),b=new Uint8Array([v>>16,(v>>8)&255,v&255,224]);return new Uint32Array(b.buffer)[0]});
  const missingColor=new Uint32Array(new Uint8Array([100,110,125,65]).buffer)[0];
- const sources=frame.rateSources?.map(s=>({data:atob(s.amount),factor:s.rateFactor*s.grid.scale,time:s.time})),amount=!sources&&frame.amount?atob(frame.amount):null,classes=frame.classes?atob(frame.classes):null;
+ const sources=frame.rateSources?.map(s=>({data:atob(s.amount),factor:s.rateFactor*s.grid.scale,time:s.time,priority:s.priority??2})),amount=!sources&&frame.amount?atob(frame.amount):null,classes=frame.classes?atob(frame.classes):null;
  if((amount&&amount.length!==n*2)||(classes&&classes.length!==n)||sources?.some(s=>s.data.length!==n*2))return null;
  // Packets are south-to-north; canvas rows are north-to-south.
  const paintRows=(start,end)=>{for(let y=start;y<end;y++){let i=y*g.nx,out=(g.ny-1-y)*g.nx;for(let x=0;x<g.nx;x++,i++,out++){
   let rate=NaN,sampleTime=frame.time;
-  if(sources){for(const s of sources){const v=(s.data.charCodeAt(i*2)|(s.data.charCodeAt(i*2+1)<<8))<<16>>16;if(v<0)continue;if(Number.isFinite(rate)&&sampleTime-s.time>5*60000)break;if(v>0){rate=v*s.factor;sampleTime=s.time;break}if(!Number.isFinite(rate)){rate=0;sampleTime=s.time}}}
+  if(sources){let latest=-Infinity,priority=Infinity;for(const s of sources){const v=(s.data.charCodeAt(i*2)|(s.data.charCodeAt(i*2+1)<<8))<<16>>16;if(v<0)continue;if(latest===-Infinity)latest=s.time;if(latest-s.time>RADAR_SOURCE_TOLERANCE_MS)break;if(s.priority<priority){rate=v*s.factor;sampleTime=s.time;priority=s.priority}}}
   else if(amount){const v=(amount.charCodeAt(i*2)|(amount.charCodeAt(i*2+1)<<8))<<16>>16;if(v>=0)rate=v*g.scale*(frame.rateFactor??12)}
   let code=classes&&Math.abs(sampleTime-frame.phaseTime)<=5*60000?classes.charCodeAt(i):255;
-  // If RY and the phase analysis are five minutes apart, type is only
-  // applied to echoes still present in the quantitative observation.
-  if(sources&&!Number.isFinite(rate)&&!(code>=1&&code<=10)){pixels[out]=missingColor;continue}
-  if(!(rate>0)&&!(code>=1&&code<=10&&(!Number.isFinite(rate)||frame.phaseTime===sampleTime)))continue;
-  if(!Number.isFinite(rate)&&(code===0||code===255))continue;
+  // A measured dry cell or a gap is never turned into precipitation by a
+  // different network's phase classification, even at the same timestamp.
+  if(!Number.isFinite(rate)){if(sources)pixels[out]=missingColor;continue}
+  if(!(rate>0))continue;
   if(rate>0&&(code===0||code===1||code===255))code=radarModelPhase(frame.models,g.west+x*g.step,g.south+y*g.step);
   if(mode==='snowfall'&&![6,7].includes(code))continue;
   const color=palette[code]||palette[1],tier=mode==='types'?2:rate>0?ownRadarTier(rate):0;
@@ -3235,7 +3241,7 @@ function refreshOwnRadarViews(){
  if(activePage==='weather')scheduleHomeMaps();
 }
 function ownRadarSource(frame){return frame?'Eigenes Radar · '+frame.source:'Radarquelle wird geladen'}
-function ownRadarDescription(frame){const scans=frame?.rateSources?.map(s=>s.source+' '+localTime(s.time,{hour:'2-digit',minute:'2-digit'})).join(' / ');return (scans?'Messraster · '+scans+' · ':frame?.rateFactor===1?'Momentanrate · ':frame?.forecast?'Radar-Nowcast · ':'')+(frame?.classes?'HymecNG · Niederschlagsart'+(frame.amount?' + Intensität':' · keine Intensität')+' · max. 5 Min. Versatz':'Radarintensität')+(frame?.models?.length?' · fehlende Phase aus '+[...new Set(frame.models.map(m=>m.d.model))].join(' / ')+' geschätzt':frame?.classes?'':' · Art unbekannt')+(scans?' · Grau: keine Radarmessung':'')}
+function ownRadarDescription(frame){const scans=frame?.rateSources?.map(s=>s.source+' '+localTime(s.time,{hour:'2-digit',minute:'2-digit'})).join(' / ');return (scans?'Radar-Verbund · '+scans+' · Europa/Schweiz bevorzugt, DWD ergänzend (max. 10 Min. Versatz) · ':frame?.rateFactor===1?'Momentanrate · ':frame?.forecast?'Radar-Nowcast · ':'')+(frame?.classes?'Beobachtete Niederschlagsart: HymecNG · max. 5 Min. Versatz':'Radarintensität')+(frame?.models?.length?' · fehlende Phase aus '+[...new Set(frame.models.map(m=>m.d.model))].join(' / ')+' geschätzt':frame?.classes?'':' · Art unbekannt')+(scans?' · Grau: keine Radarmessung':'')}
 
 function drawRealRadar(ctx,b,date,onChange=scheduleMap,allowOlder=false,mode='radar'){
  const frame=ownRadarFrame(date,allowOlder);

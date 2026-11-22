@@ -68,11 +68,11 @@ vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`
  const c=vm.createContext({Date:TestDate,Map,Math,Number,atob,console,radarBaseTime:()=>t,operaRadarData:null,radarPointData:{time:iso,grid,amount},radarPhaseData:{time:iso,grid:{...grid,missing:255},classes},radarNowcastData:null,document:{createElement:canvas},scheduleMap:()=>{},xy:(x,y)=>[x,y],drawContext:{drawImage:()=>draws++}});
  vm.runInContext(chunk('const radarCoverage=','function drawRealLiveField'),c);
  const r=s=>vm.runInContext(s,c);
- assert.equal(r('ownRadarObservation().source'),'RY + HymecNG');
+ assert.equal(r('ownRadarObservation().source'),'DWD RY · Phase: DWD HymecNG');
  r('const f=ownRadarObservation();ownRadarRaster(f);ownRadarRaster(f);');
  assert.equal(builds,1);
  const rgba=i=>Array.from(rendered.slice(i*4,i*4+4));
- assert.equal(rgba(0)[3],0);assert.equal(rgba(1)[3],0); // north: dry/missing
+ assert.equal(rgba(0)[3],0);assert.equal(rgba(1)[3],65); // north: dry/missing, explicitly distinct
  assert.deepEqual(rgba(2),[240,0,199,224]); // north: hail 12 mm/h
  assert.deepEqual(rgba(3),[243,106,186,224]); // south: snow 1.2 mm/h
  assert.deepEqual(rgba(4),[8,121,223,224]); // south: rain
@@ -83,14 +83,40 @@ vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`
  r("ownRadarRaster(f,'types')");assert.ok(rgba(2)[3]);assert.ok(rgba(3)[3]);assert.ok(rgba(4)[3]);
  assert.equal(r('phaseCodeFromModel(71,NaN,-3,-4,90)'),7);assert.equal(r('phaseCodeFromModel(66,NaN,-1,-2,90)'),5);assert.equal(r('phaseCodeFromModel(68,NaN,0,-1,90)'),6);assert.equal(r('phaseCodeFromModel(89,NaN,8,7,90)'),9);assert.equal(r('phaseCodeFromModel(NaN,NaN,NaN,NaN,NaN)'),1);
  r('radarPhaseData.time=new Date(f.time-300000).toISOString()');
- assert.equal(r('ownRadarObservation().source'),'RY + HymecNG');
+ assert.equal(r('ownRadarObservation().source'),'DWD RY · Phase: DWD HymecNG');
  assert.equal(r('ownRadarObservation().amount'),amount);
  r('radarPhaseData=null;radarNowcastData={time:radarPointData.time,grid:radarPointData.grid,frames:{5:radarPointData.amount}}');
- assert.equal(r('ownRadarObservation().source'),'RY');
+ assert.equal(r('ownRadarObservation().source'),'DWD RY');
  assert.equal(r('ownRadarFrame(new Date(f.time+300000)).forecast'),true);
  assert.equal(r('ownRadarFrame(new Date(f.time+300000)).classes'),undefined);
  assert.equal(r('ownRadarFrame(new Date(f.time+600000))'),null);
  console.log('Own radar: snow/rain/hail/unknown colours, missing cells, five-minute scan matching, type and snow layers, model phase fallback, forecast isolation, raster reuse: OK');
+}
+
+// OPERA / Swiss priority and quality rules must agree in point readings,
+// map pixels and the raster itself, including true zero vs. missing data.
+{
+ const grid={west:8,south:50,step:.01,nx:3,ny:2,scale:.01,missing:-32768};
+ const pack=values=>{const b=Buffer.alloc(values.length*2);values.forEach((v,i)=>b.writeInt16LE(v,i*2));return b.toString('base64')};
+ const packet=(age,values)=>({time:new Date(now-age*60000).toISOString(),grid,amount:pack(values)});
+ let pixels;
+ const radar=vm.createContext({console,Date:TestDate,Map,Math,Number,atob,operaRadarData:packet(8,[0,500,-32768,-32768,100,0]),swissRadarData:packet(5,[150,250,300,-32768,200,-32768]),radarPointData:packet(2,[100,200,50,25,400,100]),radarPhaseData:{time:new Date(now-2*60000).toISOString(),grid:{...grid,missing:255},classes:Buffer.from([3,3,3,3,3,3]).toString('base64')},radarNowcastData:null,document:{createElement:()=>({getContext:()=>({createImageData:(w,h)=>({data:new Uint8ClampedArray(w*h*4)}),putImageData:im=>pixels=im.data})})},scheduleMap:()=>{}});
+ vm.runInContext(html.match(/^function packedCell.*$/m)[0]+'\n'+chunk('const radarCoverage=','function drawRealLiveField'),radar);const r=s=>vm.runInContext(s,radar);
+ const sample=(p)=>r(`pointRadarAt(${JSON.stringify(p)})`);
+ assert.equal(sample([8,50]).rate,0,'dry independent primary cannot be overwritten by DWD');
+ assert.match(sample([8.01,50]).source,/OPERA/);assert.equal(sample([8.01,50]).rate,5);
+ assert.match(sample([8.02,50]).source,/MeteoSwiss/);assert.equal(sample([8.02,50]).rate,3);
+ assert.match(sample([8,50.01]).source,/DWD/);assert.equal(sample([8,50.01]).rate,3);
+ r('const fused=ownRadarObservation();ownRadarRaster(fused)');
+ assert.equal(r('ownRadarPixel(fused,[8,50]).code'),0);assert.equal(pixels[3*4+3],0);
+ assert.equal(r('ownRadarPixel(fused,[8.02,50]).rate'),3);
+ assert.equal(r('ownRadarPixel(fused,[8.01,50]).rate'),5);
+ r('radarPointData=null;radarPhaseData=null');assert.equal(sample([8.02,50]).rate,3);assert.match(r('ownRadarObservation().source'),/OPERA/);
+ r('radarPointData='+JSON.stringify(packet(2,[100,200,50,25,400,100]))+';operaRadarData.time='+JSON.stringify(new Date(now-19*60000).toISOString())+';swissRadarData=null');
+ assert.match(sample([8.01,50]).source,/DWD/,'much newer measurement takes precedence');
+ r('radarPointData=null;operaRadarData=null;radarPhaseData='+JSON.stringify({time:new Date(now-2*60000).toISOString(),grid,classes:Buffer.from([3,3,3,3,3,3]).toString('base64')}));
+ assert.equal(r('ownRadarObservation()'),null,'phase alone cannot create a radar image');
+ console.log('Radar-Verbund: OPERA priority, Swiss gap fill, DWD fallback, dry preservation, recent time preference and independence from DWD: OK');
 }
 
  // Numeric radar is reused across zoom and fullscreen; no WMS fallback.
