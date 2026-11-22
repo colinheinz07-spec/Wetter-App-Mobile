@@ -12,7 +12,7 @@ const path=require('node:path');
   const grid={west:5.5,south:47,step:.05,nx:193,ny:165},empty=Buffer.alloc(grid.nx*grid.ny),frost=Buffer.from(empty);
   for(let y=58;y<=62;y++)for(let x=48;x<=52;x++)frost[y*grid.nx+x]=12;
   const layers=Object.fromEntries(['frost','wind','heat','fog','snow','freezing','ice','rain','storm'].map(k=>[k,(k==='frost'?frost:empty).toString('base64')]));
-  const risk={schema:1,generated:t,grid,models:[],periods:[{start:t-300,end:t+10500,layers}]};
+  const risk={schema:1,generated:t,grid,models:[],periods:[{start:t-300,end:t+10500,layers},{start:t+10500,end:t+21300,layers}]};
   await page.route(/^https?:\/\//,async route=>{const url=route.request().url();if(url.includes('Warnungen_Gemeinden_vereinigt')||url.includes('official-alerts.json'))officialRequests++;const data=url.includes('Warnungen_Gemeinden_vereinigt')?{type:'FeatureCollection',numberMatched:1,features:[{properties,geometry:{type:'Polygon',coordinates:[[[9,50],[10,50],[10,51],[9,50]]]}}]}:url.includes('storm-tracks-data/storm-tracks.json')?{schema:1,generated:t,observed:t-300,cells}:url.includes('national-risks-data/national-risks.json.gz')?risk:null;if(data)await route.fulfill({json:data,headers:{'Access-Control-Allow-Origin':'*'}});else await route.abort()});
   await page.goto('file://'+path.join(process.cwd(),'index.html'));
   await page.locator('#navigation button[data-page="warnings"]').click();

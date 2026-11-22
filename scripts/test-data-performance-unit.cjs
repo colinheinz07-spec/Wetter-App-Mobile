@@ -2,6 +2,13 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const html=fs.readFileSync('assets/app.js','utf8'),chunk=(a,b)=>html.slice(html.indexOf(a),html.indexOf(b));
 const now=Date.parse('2026-11-19T18:30:00Z'),run='2026-11-19T12:00:00.000Z';
 class TestDate extends Date{static now(){return now}}
+{
+ const solar=vm.createContext({Date:TestDate,Math,Number,atob});vm.runInContext(html.match(/^function packedCell.*$/m)[0]+'\n'+chunk('function validSolarPacket','function solarDetail'),solar);
+ const grid={west:5.5,south:47,step:.02,nx:481,ny:411,missing:-32768,scale:.1},raw=Buffer.alloc(grid.nx*grid.ny*2);raw.writeInt16LE(415,0);raw.writeInt16LE(-32768,2);
+ solar.packet={grid,time:new Date(now-60000).toISOString(),start:new Date(now-3660000).toISOString(),unit:'min',bounds:[5.49,46.99,15.11,55.21],png:'sample',values:raw.toString('base64')};
+ assert.equal(vm.runInContext("validSolarPacket(packet,'sunshine')",solar),true);assert.equal(vm.runInContext('solarValue(packet,[5.5,47])',solar),41.5);assert.ok(Number.isNaN(vm.runInContext('solarValue(packet,[5.52,47])',solar)));assert.equal(vm.runInContext("validSolarPacket(packet,'sunshine',Date.now()+4*3600000)",solar),false);
+ console.log('Sunshine observation: raster cell, missing value and timestamp validation: OK');
+}
 const ctx=vm.createContext({console,Date:TestDate,Map,Set,Math,Number,Int16Array,atob,URLSearchParams,AbortSignal,setTimeout:()=>0,clearTimeout:()=>{},navigator:{connection:{saveData:false}},document:{hidden:false}});
 const ev=s=>vm.runInContext(s,ctx);
 vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`

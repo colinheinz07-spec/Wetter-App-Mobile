@@ -65,14 +65,15 @@ assert.equal(el('#nw-popup').hidden,true);
 assert.doesNotMatch(el('national-warning').innerHTML,/id="nw-list"/);
 // Inject independent sources and exercise the real refresh and map click code.
 (async()=>{
- const now=Math.floor(Date.now()/1000),grid={west:5.5,south:47,step:.05,nx:193,ny:165};
- const frost=Buffer.alloc(grid.nx*grid.ny),empty=Buffer.alloc(frost.length);frost[60*grid.nx+50]=12;
+ const now=Math.floor(Date.now()/1000),grid={west:5.5,south:47,step:.02,nx:481,ny:411};
+ const frost=Buffer.alloc(grid.nx*grid.ny),empty=Buffer.alloc(frost.length);frost[150*grid.nx+125]=12;
  const layers=Object.fromEntries(['frost','wind','heat','fog','snow','freezing','ice','rain','storm'].map(k=>[k,(k==='frost'?frost:empty).toString('base64')]));
- const model={schema:1,generated:now,grid,models:[],periods:[{start:now-300,end:now+10500,layers}]};
+ const model={schema:1,generated:now,grid,models:[],periods:[{start:now-300,end:now+10500,layers},{start:now+10500,end:now+21300,layers}]};assert.equal(w.validRisk(model),true);
  let cells=[{id:'test',point:[8,50],polygons:[[[7.98,49.98],[8.02,49.98],[8.02,50.02],[7.98,50.02]]],path:[],lightning:5,speedKmh:42,rainFlag:2,rainMm:22,rainMinutes:30}];
  const urls=[];mobile.fetch=async url=>{urls.push(url);const d=url.includes('storm-tracks.json')?{schema:1,generated:now,observed:now-300,cells}:url.includes('national-risks.json.gz')?model:null;if(!d)throw Error('Unexpected request '+url);return {ok:true,arrayBuffer:async()=>Uint8Array.from(Buffer.from(JSON.stringify(d))).buffer}};
  await handlers.get('#nw-refresh:click')();
  assert.match(canvas.innerHTML,/data-storm-id="test"/);
+ assert.match(canvas.innerHTML,/data-warning-kind="frost"/);
  // The earlier synthetic pinch suppresses subsequent clicks for 450 ms.
  await new Promise(resolve=>setTimeout(resolve,500));
  const tap=(kind,dataset)=>{const [x,y]=w.project(8,50),scale=Math.min(390/w.MAP_W,420/w.MAP_H);handlers.get('#nw-canvas:click')({clientX:x*scale+(390-w.MAP_W*scale)/2,clientY:y*scale+(420-w.MAP_H*scale)/2,target:{closest:s=>s===kind?{dataset}:null}})};

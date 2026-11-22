@@ -1,0 +1,37 @@
+name: Mobile independent regional warning calculation
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  push:
+    branches: [main]
+    paths: ['scripts/ingest-mobile-warnings.py', 'scripts/test-mobile-warning-ingest.py', '.github/workflows/mobile-warnings.yml']
+permissions:
+  contents: write
+concurrency:
+  group: mobile-regional-warnings
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install numpy
+      - run: python scripts/test-mobile-warning-ingest.py
+      - run: python scripts/ingest-mobile-warnings.py "$RUNNER_TEMP/national-risks.json.gz"
+      - name: Publish the validated rolling warning grid
+        run: |
+          git config user.name 'Wetter Mobile Data'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          ref=refs/heads/mobile-warning-data
+          previous=$(git ls-remote --heads origin "$ref" | cut -f1)
+          if test -n "$previous"; then
+            git fetch --depth=1 origin "$previous"
+            test "$(git ls-tree -r --name-only "$previous")" = national-risks.json.gz
+            test "$(git log -1 --format=%s "$previous")" = 'Generated mobile warning snapshot'
+          fi
+          blob=$(git hash-object -w "$RUNNER_TEMP/national-risks.json.gz")
+          tree=$(printf '100644 blob %s\tnational-risks.json.gz\n' "$blob" | git mktree)
+          commit=$(git commit-tree "$tree" -m 'Generated mobile warning snapshot')
+          git push --force-with-lease="$ref:$previous" origin "$commit:$ref"

@@ -29,7 +29,7 @@ def string(value):
     return value.decode() if isinstance(value, bytes) else str(value)
 
 
-def read_scan(raw, site, now=None, size=768):
+def read_scan(raw, site, now=None, size=None):
     now = now or dt.datetime.now(UTC)
     with h5py.File(io.BytesIO(raw), 'r') as f:
         w = f['where'].attrs
@@ -61,6 +61,9 @@ def read_scan(raw, site, now=None, size=768):
             raise ValueError('Invalid sweep geometry')
         cos = np.cos(np.deg2rad(elevation))
         radius = min(200000, (rstart+bins*rscale)*cos)
+        # Preserve gate-scale detail near the radar; the native azimuthal
+        # beam spacing is still the information limit farther away.
+        size = size or min(1536,max(768,int(np.ceil(2*radius/rscale))))
         # Use geographic pixel centres and inverse geodesics. Ground range
         # approximates the low-elevation beam; no velocity extrapolation.
         west = lon-radius/(110000*np.cos(np.deg2rad(lat))); east = 2*lon-west
@@ -83,7 +86,7 @@ def read_scan(raw, site, now=None, size=768):
         rgba[:,:,3] = np.where(keep,235,0)
         png = io.BytesIO(); Image.fromarray(rgba).save(png,format='PNG',optimize=True)
         time_str = time.isoformat().replace('+00:00','Z')
-        return dict(schema=1,site=site,time=time_str,lon=lon,lat=lat,elevation=elevation,bounds=[west,south,east,north],png=base64.b64encode(png.getvalue()).decode(),source='DWD VRADH · '+site.upper())
+        return dict(schema=1,site=site,time=time_str,lon=lon,lat=lat,elevation=elevation,rangeGateM=rscale,raySpacingDeg=float(np.median(widths)),rasterSize=size,bounds=[west,south,east,north],png=base64.b64encode(png.getvalue()).decode(),source='DWD VRADH · '+site.upper())
 
 
 def fetch_site(site):

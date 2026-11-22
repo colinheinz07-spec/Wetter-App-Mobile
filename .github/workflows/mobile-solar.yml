@@ -1,0 +1,36 @@
+name: Mobile sunshine and radiation observations
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '20,50 * * * *'
+  push:
+    branches: [main]
+    paths: ['scripts/ingest-mobile-solar.py', '.github/workflows/mobile-solar.yml']
+permissions:
+  contents: write
+concurrency:
+  group: mobile-solar
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install numpy netCDF4 pillow pyproj
+      - run: python scripts/ingest-mobile-solar.py "$RUNNER_TEMP/solar.json.gz"
+      - name: Publish the hourly observation analysis
+        run: |
+          git config user.name 'Wetter Mobile Data'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          ref=refs/heads/mobile-solar-data
+          previous=$(git ls-remote --heads origin "$ref" | cut -f1)
+          if test -n "$previous"; then
+            git fetch --depth=1 origin "$previous"
+            test "$(git ls-tree -r --name-only "$previous")" = solar.json.gz
+            test "$(git log -1 --format=%s "$previous")" = 'Generated mobile sunshine snapshot'
+          fi
+          blob=$(git hash-object -w "$RUNNER_TEMP/solar.json.gz")
+          tree=$(printf '100644 blob %s\tsolar.json.gz\n' "$blob" | git mktree)
+          commit=$(git commit-tree "$tree" -m 'Generated mobile sunshine snapshot')
+          git push --force-with-lease="$ref:$previous" origin "$commit:$ref"
