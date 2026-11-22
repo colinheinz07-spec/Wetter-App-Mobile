@@ -54,6 +54,13 @@ const ps=[{start:t-100,end:t+10700},{start:t+30000,end:t+40800},{start:t+90000,e
 assert.deepEqual(w.pickPeriods({periods:ps},t,'all'),ps.slice(0,2));
 assert.deepEqual(w.pickPeriods({periods:ps},t,'0-6'),ps.slice(0,1));
 assert.deepEqual(w.pickPeriods({periods:ps},t,'6-12'),ps.slice(1,2));
+assert.deepEqual(w.pickPeriods({periods:ps},t,'now'),ps.slice(0,1));
+assert.deepEqual(w.eventsInWindow(merged,[{start:t+10800,end:t+21600}]),merged.slice(0,1));
+assert.equal(w.eventsInWindow(merged,[{start:t+10800,end:t+21600}])[0].start,t);
+assert.deepEqual([2,3,4,5,6,7,9,10,0,1,8,255].map(w.radarKind),['rain','rain','freezing','freezing','mixed','snow','hail','hail','precip','precip','precip','precip']);
+const radarPhase={time:1234567,grid:smallGrid,raw:String.fromCharCode(7,3,6,4,9,255)};
+assert.equal(w.radarPhaseCode(radarPhase,[7,50],1234567),7);
+assert.equal(w.radarPhaseCode(radarPhase,[7,50],1234567+300001),null);
 require('../assets/basemap.js');require('../assets/geography.js');
 const geo=w.mapGeometry(global.WEATHER_BASEMAP,global.WEATHER_EXTRA_GEO);
 assert.ok(geo.outline.length>10000&&geo.states.length>10000,'Standalone Germany geometry is complete');

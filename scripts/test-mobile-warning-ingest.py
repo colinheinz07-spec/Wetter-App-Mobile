@@ -43,6 +43,18 @@ for i in range(5):
     rain_fields[(i*10800,'rainTotal')]=fill(i*8)
     rain_fields[(i*10800,'ww')]=fill(61)
 assert r.analyze(rain_fields,43200)['durationrain'][0]==1
+assert r.analyze(rain_fields,10800)['durationrain'][0]==1 # warn before the total has accumulated
+mixed_rain=dict(rain_fields);mixed_rain[(21600,'ww')]=fill(68)
+assert r.analyze(mixed_rain,10800)['durationrain'][0]==255
+def storm_code(a,b):
+    models=[dict(model=m,run=0,step=.02,fields=fields) for m,fields in [('ICON-D2',a),('GFS',b)]]
+    return base64.b64decode(r.build(0,models,[end])['periods'][0]['layers']['storm'])[0]
+assert storm_code(f,f)==22 # ingredients alone are not active warnings
+explicit=dict(f);explicit[(end,'ww')]=fill(95)
+convective=dict(f);convective.update(field(0,convTotal=0));convective[(end,'convTotal')]=fill(3)
+assert storm_code(explicit,convective)==12
+hourly={**field(end,ww=61,temp2=8),**{(i*3600,'rainTotal'):fill(v) for i,v in enumerate([0,0,17,18])}}
+assert r.analyze(hourly,end)['rain'][0]==1 # not missed by 3h threshold
 assert r.analyze(field(end,temp2=0),end)['frost'][0]==0
 snowfields=field(end,temp2=-2,ww=71,rainTotal=10,snowGspTotal=5,snowConTotal=1)
 snowfields.update(field(0,temp2=-2,rainTotal=0,snowGspTotal=0,snowConTotal=0))
