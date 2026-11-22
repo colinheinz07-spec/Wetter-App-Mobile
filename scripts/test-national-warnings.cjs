@@ -39,14 +39,26 @@ for(const [width,height] of [[320,420],[390,420],[768,600]]){
  const scale=Math.min(width/w.MAP_W,height/w.MAP_H),[x,y]=w.project(13.4,52.52);
  const p=w.unproject(x*scale+(width-w.MAP_W*scale)/2,y*scale+(height-w.MAP_H*scale)/2,width,height);
  assert.ok(Math.abs(p[0]-13.4)<1e-8&&Math.abs(p[1]-52.52)<1e-8,'Correct tap coordinates on letterboxed map');
+ const original=w.mapView(),from=[width*.58,height*.48],to=[width*.47,height*.57],anchor=w.mapPoint(original,...from,width,height),zoomed=w.zoomMap(original,3,from,to,width,height),held=w.mapPoint(zoomed,...to,width,height);
+ assert.ok(Math.abs(anchor[0]-held[0])<1e-8&&Math.abs(anchor[1]-held[1])<1e-8,'Pinch keeps geographic anchor even when fingers move');
+ const panned=w.panMap(zoomed,15,-12,width,height);assert.notEqual(panned.cx,zoomed.cx);assert.notEqual(panned.cy,zoomed.cy);
+ const edge=w.panMap(zoomed,100000,100000,width,height);assert.equal(edge.x,0);assert.equal(edge.y,0);
+ assert.equal(w.mapView(50).zoom,w.MAX_ZOOM);assert.equal(w.mapView(.5).zoom,1);
 }
 assert.match(require('node:fs').readFileSync('assets/national-map.svg','utf8'),/viewBox="0 0 600 780"/);
 // Simulate a WebView without an initialized main app, canvas context,
 // ResizeObserver or a working fetch. The ground map must already exist.
-const vm=require('node:vm'),fs=require('node:fs'),elements=new Map();
-const el=id=>{if(!elements.has(id))elements.set(id,{innerHTML:'',textContent:'',classList:{contains:()=>false},querySelector:el,querySelectorAll:()=>[],addEventListener(){},setAttribute(){}});return elements.get(id)};
+const vm=require('node:vm'),fs=require('node:fs'),elements=new Map(),handlers=new Map();
+const el=id=>{if(!elements.has(id))elements.set(id,{innerHTML:'',textContent:'',classList:{contains:()=>false},querySelector:el,querySelectorAll:()=>[],addEventListener(e,fn){handlers.set(id+':'+e,fn)},setAttribute(k,v){this[k]=v},getBoundingClientRect:()=>({width:390,height:420,left:0,top:0}),style:{setProperty(){}}});return elements.get(id)};
 const mobile=vm.createContext({document:{getElementById:el,documentElement:{dataset:{theme:'light'}}},setInterval(){},console,Date,AbortController,WEATHER_BASEMAP:global.WEATHER_BASEMAP,WEATHER_EXTRA_GEO:global.WEATHER_EXTRA_GEO});
 vm.runInContext(fs.readFileSync('assets/national-warnings.js','utf8'),mobile);
 assert.match(el('national-warning').innerHTML,/src="assets\/national-map.svg"/);
 assert.match(el('#nw-canvas').innerHTML,/<path d="M/,'Immediate independent SVG overlay before fetch');
+const canvas=el('#nw-canvas'),zoomLabel=el('#nw-zoom-level');
+assert.equal(canvas.viewBox,'0 0 600 780');handlers.get('#nw-zoom-plus:click')();assert.equal(zoomLabel.textContent,'1.6×');assert.notEqual(canvas.viewBox,'0 0 600 780');
+handlers.get('#nw-zoom-reset:click')();assert.equal(canvas.viewBox,'0 0 600 780');
+const touch=(a,b)=>({touches:[{clientX:a,clientY:210},{clientX:b,clientY:210}],cancelable:true,preventDefault(){}});
+handlers.get('#nw-canvas:touchstart')(touch(155,235));handlers.get('#nw-canvas:touchmove')(touch(115,275));assert.equal(zoomLabel.textContent,'2×');
+handlers.get('#nw-canvas:touchend')({touches:[]});const box=canvas.viewBox;handlers.get('#nw-canvas:touchstart')({touches:[{clientX:190,clientY:210}]});handlers.get('#nw-canvas:touchmove')({touches:[{clientX:220,clientY:240}],cancelable:true,preventDefault(){}});assert.notEqual(canvas.viewBox,box,'One-finger drag on zoomed map');
+handlers.get('#nw-canvas:touchend')({touches:[]});handlers.get('#nw-zoom-reset:click')();assert.equal(canvas.viewBox,'0 0 600 780');
 console.log('PASS: active / future / conditional, expiry, 24h horizon, polygon holes, time filtering and stale data');
