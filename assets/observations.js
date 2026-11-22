@@ -68,11 +68,11 @@ function gridField(id,now=Date.now()){
 function gridValue(id,point,now=Date.now()){const f=gridField(id,now);if(!f)return NaN;const g=f.grid,x=Math.round((point[0]-g.west)/g.step),y=Math.round((point[1]-g.south)/g.step);return x>=0&&x<g.nx&&y>=0&&y<g.ny?f.values[y*g.nx+x]:NaN;}
 function validGrid(g){return g&&Number.isInteger(g.nx)&&Number.isInteger(g.ny)&&g.nx>0&&g.ny>0&&g.nx*g.ny<=2000000&&finite(g.west)&&finite(g.south)&&g.step>0&&g.step<=.1;}
 function validTime(d,t,now,max){return d?.schema===1&&finite(d.generated)&&d.generated*1000<=now+MIN&&finite(t)&&t*1000<=now&&now-t*1000<=max&&d.generated>=t;}
-function analysisPacket(d,now){const g=d?.grid;if(!validTime(d,d?.run,now,90*MIN)||d.product!=='ruc-surface-map'||!validGrid(g)||g.scale!==.1||g.missing!==-32768||!['temp2','dew','wind','winddir','rh2'].every(k=>typeof d.fields?.[k]==='string'&&d.fields[k].length===4*Math.ceil(g.nx*g.ny*2/3)))throw Error('invalid analysis map');return d;}
+function analysisPacket(d,now){const g=d?.grid;if(!validTime(d,d?.run,now,150*MIN)||d.product!=='ruc-surface-map'||!validGrid(g)||g.scale!==.1||g.missing!==-32768||!['temp2','dew','wind','winddir','rh2'].every(k=>typeof d.fields?.[k]==='string'&&d.fields[k].length===4*Math.ceil(g.nx*g.ny*2/3)))throw Error('invalid analysis map');return d;}
 function satellitePacket(d,now){const g=d?.grid;if(!validTime(d,d?.time,now,45*MIN)||d.product!=='DWD-METEOSAT-CTH'||!validGrid(g)||typeof d.cloud!=='string'||d.cloud.length!==4*Math.ceil(g.nx*g.ny/3))throw Error('invalid satellite cloud mask');return d;}
 function mapField(id,now=Date.now()){
- if(analysis&&now-analysis.run*1000<=90*MIN&&now>=analysis.run*1000&&analysis.fields[id]){
-  if(!mapGrids.has(id)){const g=analysis.grid,b=atob(analysis.fields[id]),a=new Float32Array(g.nx*g.ny);for(let i=0;i<a.length;i++){const v=(b.charCodeAt(2*i)|b.charCodeAt(2*i+1)<<8)<<16>>16;a[i]=v===g.missing?NaN:v*g.scale;}mapGrids.set(id,{grid:g,values:a,time:analysis.run*1000,kind:'analysis',source:'DWD ICON-D2-RUC · +0 h · messdatengestützte Analyse'});}return mapGrids.get(id);
+ if(analysis&&now-analysis.run*1000<=150*MIN&&now>=analysis.run*1000&&analysis.fields[id]){
+  if(!mapGrids.has(id)){const g=analysis.grid,b=atob(analysis.fields[id]),a=new Float32Array(g.nx*g.ny);for(let i=0;i<a.length;i++){const v=(b.charCodeAt(2*i)|b.charCodeAt(2*i+1)<<8)<<16>>16;a[i]=v===g.missing?NaN:v*g.scale;}mapGrids.set(id,{grid:g,values:a,time:analysis.run*1000,kind:'analysis',source:'DWD ICON-D2-RUC · +0 h · messdatengestützte Analyse'});}const f=mapGrids.get(id);return now-f.time>90*MIN?{...f,stale:true,source:f.source+' · älter als 90 Min.'}:f;
  }
  const f=gridField(id,now);return f?{...f,kind:'observation',source:'DWD SYNOP · räumliche Beobachtungsanalyse'}:null;
 }
@@ -83,14 +83,16 @@ function cloudField(now=Date.now()){
 function sampleField(f,point){if(!f)return NaN;const g=f.grid,x=Math.round((point[0]-g.west)/g.step),y=Math.round((point[1]-g.south)/g.step);return x>=0&&x<g.nx&&y>=0&&y<g.ny?f.values[y*g.nx+x]:NaN;}
 function mapValue(id,point,now=Date.now()){return sampleField(mapField(id,now),point);}
 function fogPotential(t,dew,rh,wind){return [t,dew,wind].every(finite)&&t-dew>=-.5&&t-dew<=1&&wind>=0&&wind<=12&&(!finite(rh)||rh>=94);}
-function stationFog(r){const v=r.values;return v.fog===1||finite(v.visibility)&&v.visibility<=1000&&!(v.phase>=2)&&finite(v.temp2)&&finite(v.dew)&&v.temp2-v.dew<=1&&v.temp2-v.dew>=-.5;}
+function stationFog(r){const v=r.values;return v.fog===1&&(!finite(v.visibility)||v.visibility<=1000)||finite(v.visibility)&&v.visibility<=1000&&!(v.phase>=2)&&finite(v.temp2)&&finite(v.dew)&&v.temp2-v.dew<=1&&v.temp2-v.dew>=-.5;}
 function fogStations(now=Date.now()){return surface?latestRows(surface.rows,now,60*MIN).filter(stationFog):[];}
 function fogAt(point,height,now=Date.now()){
  const direct=nearby(fogStations(now),point,height,1.5).find(x=>!finite(height)||x.dh<=120);
- if(direct){const r=direct.r;return {state:'observed',time:r.time*1000,visibility:r.values.visibility,source:'DWD SYNOP · '+r.name+' · lokale Nebelbeobachtung'};}
+ if(direct){const r=direct.r;return {state:'observed',time:r.time*1000,visibility:r.values.visibility,source:'DWD SYNOP · '+r.name+' · '+(r.values.fog===1?'lokale Nebelmeldung':'geringe Sicht gemessen, Nebel wahrscheinlich')};}
+ const reported=surface&&nearby(latestRows(surface.rows,now,60*MIN),point,height,1.5).find(x=>(!finite(height)||x.dh<=120)&&x.r.values.fog===1&&x.r.values.visibility>1000);
+ if(reported)return {state:'risk',time:reported.r.time*1000,source:'DWD SYNOP · '+reported.r.name+' · Nebel gemeldet, Messsicht über 1000 m; örtliche Nebelbänke möglich'};
  const near=surface&&nearby(latestRows(surface.rows,now,60*MIN),point,height,1.5).find(x=>(!finite(height)||x.dh<=120)&&fogPotential(x.r.values.temp2,x.r.values.dew,x.r.values.rh2,x.r.values.wind));
  if(near)return {state:'risk',time:near.r.time*1000,source:'DWD SYNOP · '+near.r.name+' · nahezu gesättigte Luft und schwacher Wind; Nebel möglich, nicht bestätigt'};
- const a=['temp2','dew','rh2','wind'].map(k=>mapField(k,now));if(a.every(f=>f?.kind==='analysis'&&f.time===a[0].time)&&fogPotential(...a.map(f=>sampleField(f,point))))return {state:'risk',time:a[0].time,source:'ICON-D2-RUC · nahezu gesättigte Luft und schwacher Wind; besonders in Muldenlagen möglich, nicht beobachtet'};
+ const a=['temp2','dew','rh2','wind'].map(k=>mapField(k,now));if(a.every(f=>f?.kind==='analysis'&&!f.stale&&f.time===a[0].time)&&fogPotential(...a.map(f=>sampleField(f,point))))return {state:'risk',time:a[0].time,source:'ICON-D2-RUC · nahezu gesättigte Luft und schwacher Wind; besonders in Muldenlagen möglich, nicht beobachtet'};
  return null;
 }
 function cellAmount(packet,r,point){

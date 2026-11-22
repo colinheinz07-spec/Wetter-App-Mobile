@@ -51,7 +51,7 @@ const server=http.createServer((req,res)=>{
     if(h)return json({schema:2,run,generated:run,hour:+h,field:k,values:fieldValue(k,+h)});
    }
    if(p.endsWith('/opera-radar.json.gz'))return json(operaPacket);
-   if(p.endsWith('/satellite-cloud.json.gz'))return json({schema:1,product:'DWD-METEOSAT-CTH',time:Date.parse(scan)/1000,generated:Date.parse(scan)/1000,grid:{west:8,south:48,step:.03,nx:2,ny:2},cloud:Buffer.from([100,100,100,100]).toString('base64')});
+   if(p.endsWith('/satellite-cloud.json.gz'))return json({schema:1,product:'DWD-METEOSAT-CTH',time:Date.parse(scan)/1000,generated:Date.parse(scan)/1000,grid:{west:2,south:45,step:.03,nx:535,ny:401},cloud:Buffer.alloc(535*401,100).toString('base64')});
    if(p.endsWith('/radar-phase.json.gz'))return groundFallback?route.fulfill({status:404,headers:{'access-control-allow-origin':'*'}}):json({schema:1,product:'HymecNG',time:scan,grid:{west:8,south:48,step:6,nx:2,ny:2,missing:255},classes:Buffer.from([7,7,7,7]).toString('base64')});
    if(u.hostname==='api.brightsky.dev'&&p==='/weather')return json({weather:[{timestamp:analysisRun,source_id:1,condition:groundFallback?'snow':'rain'}],sources:[{id:1,observation_type:groundFallback?'current':'forecast',wmo_station_id:'10384',station_name:'Berlin',lat:52.52,lon:13.405,height:35}]});
    if(u.hostname==='opendata.dwd.de')return route.fulfill({headers:{'access-control-allow-origin':'*'},body:'<a href="composite_rv_20261119_1820.tar">Radar</a>'});
@@ -124,6 +124,10 @@ const server=http.createServer((req,res)=>{
   await page.locator('#map-zoom-plus').click();await page.locator('#map-zoom-plus').click();
   await page.waitForTimeout(350);assert.equal(currentRadar().length,count);
   await page.locator('#map-full-open').click();await page.waitForTimeout(350);assert.equal(currentRadar().length,count);
+  // Read the actual rendered canvas, not the app's private drawing helpers.
+  const canvasColors=()=>page.locator('#model-canvas').evaluate(c=>{const a=c.getContext('2d').getImageData(0,0,c.width,c.height).data,h={};for(let y=5;y<25;y++)for(let x=5;x<25;x++){const i=(Math.floor(y*c.height/30)*c.width+Math.floor(x*c.width/30))*4,k=[a[i],a[i+1],a[i+2]].join(',');h[k]=(h[k]||0)+1}return h});
+  const radarColors=await canvasColors(),dominantRadar=Object.entries(radarColors).sort((a,b)=>b[1]-a[1])[0];
+  assert.ok(dominantRadar[1]>100,'uniform wet radar fixture must fill the viewport');
   await page.locator('#map-nowcast-forward').click();
   await page.waitForFunction(()=>document.querySelector('#map-data-notice').textContent==='Radar wird geladen …');
   assert.ok(!requests.some(s=>new URL(s).hostname==='maps.dwd.de'),'numeric radar must never request DWD WMS images');
@@ -134,8 +138,7 @@ const server=http.createServer((req,res)=>{
   await page.waitForFunction(()=>WeatherObservation.cloudField()&&document.querySelector('#map-valid').textContent.includes('Radar:')&&!document.querySelector('#map-valid').textContent.includes('Radar: keine Daten'));
   assert.match(await page.locator('#map-layer-title').innerText(),/Satellitenwolken \+ Niederschlagsradar/);
   assert.match(await page.locator('#radar-type-legend').innerText(),/Art unbekannt/);
-  const overlay=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=c.height=80;const ctx=c.getContext('2d'),b={west:8,east:8.03,south:48,north:48.03,w:80,h:80};drawLiveBase(ctx,b);drawObservedField(ctx,b,'cloud');const before=[...ctx.getImageData(40,40,1,1).data];drawRealLiveField(ctx,b,true);const after=[...ctx.getImageData(40,40,1,1).data];return {before,after}});
-  assert.notDeepEqual(overlay.after,overlay.before,'satellite must composite the real radar over the cloud mask');
+  const satelliteColors=await canvasColors();assert.ok((satelliteColors[dominantRadar[0]]||0)>100,'satellite must composite the actual wet radar over the cloud mask: '+JSON.stringify({dominantRadar,satelliteColors}));
   await page.locator('[data-full-layer="doppler"]').click();
   await page.waitForFunction(()=>document.querySelector('#map-layer-title').textContent.includes('Doppler')&&document.querySelector('#map-data-notice').textContent==='Beobachtung');
   assert.match(await page.locator('#map-interval').innerText(),/kein Tornadonachweis/);

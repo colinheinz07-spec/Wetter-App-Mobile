@@ -151,9 +151,9 @@ def main():
     now=dt.datetime.now(UTC)
     for run in runs('T_2M'):
         at=dt.datetime.fromisoformat(stamp(run))
-        if not dt.timedelta(0)<=now-at<=dt.timedelta(minutes=90): continue
         if args.previous_run and at<=dt.datetime.fromisoformat(args.previous_run):
             print('No newer analysis'); return
+        if not dt.timedelta(0)<=now-at<=dt.timedelta(minutes=150): continue
         try:
             def read(p): return p,decode(get(folder(p,run)+filename(0)),run)
             with ThreadPoolExecutor(max_workers=4) as pool: raw=dict(pool.map(read,INPUTS))

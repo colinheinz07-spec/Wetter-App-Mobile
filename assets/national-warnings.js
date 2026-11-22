@@ -239,7 +239,7 @@ function observedFrost(collector){
 function fogWindow(){return stage!=='upcoming'&&['all','now','0-6'].includes(windowId)}
 let fogCache=null;
 function currentFogRisk(){
- const o=globalThis.WeatherObservation;if(!o?.mapField)return null;const f=['temp2','dew','rh2','wind'].map(k=>o.mapField(k));if(!f.every(x=>x?.kind==='analysis'&&x.time===f[0].time))return null;
+ const o=globalThis.WeatherObservation;if(!o?.mapField)return null;const f=['temp2','dew','rh2','wind'].map(k=>o.mapField(k));if(!f.every(x=>x?.kind==='analysis'&&!x.stale&&x.time===f[0].time))return null;
  if(fogCache?.time===f[0].time)return fogCache;
  const g=f[0].grid,levels=new Uint8Array(g.nx*g.ny),markers=[];for(let i=0;i<levels.length;i++)if(o.fogPotential(f[0].values[i],f[1].values[i],f[2].values[i],f[3].values[i])){levels[i]=1;const x=i%g.nx,y=Math.floor(i/g.nx);if(x%8===0&&y%8===0){const p=[g.west+x*g.step,g.south+y*g.step];if(inGermany(p))markers.push(p)}}
  fogCache={time:f[0].time,markers,markup:contourMarkup(levels,g,.55)};return fogCache;
