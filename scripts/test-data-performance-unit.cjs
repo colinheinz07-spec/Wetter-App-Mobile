@@ -62,6 +62,9 @@ vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`
  assert.equal(resolve("observedPhaseCache.set(pointKey(op),obs);livePhaseWeather(frame,radar,resolveLivePhase(op,radar,now),op,now).condition"),'Schneefall');
  assert.match(resolve("livePhaseWeather(frame,radar,resolveLivePhase(op,radar,now),op,now).source"),/Bodenbeobachtung Oberstdorf/);
  assert.equal(resolve("resolveLivePhase(op,{...radar,rate:0},now)"),null,'no wet radar, no station phase substitution');
+ live.poiCsv='date;time;present_weather\nUTC;UTC;code\nDatum;Zeit;Wetter\n'+new Date(now-30*60000).toISOString().slice(0,10).split('-').reverse().join('.')+';'+new Date(now-30*60000).toISOString().slice(11,16)+';16';
+ assert.equal(resolve("const poi=decodePoiPhase(poiCsv,{...stationPacket.sources[0],distance:1100},now);poi.code"),7);
+ assert.equal(resolve("livePhaseWeather(frame,radar,poi,op,now).condition"),'Kräftiger Schneefall');
  console.log('Live weather: analysed snow/mix/rain/freezing phase, conservative fallback, cloud cover, no-data and staleness: OK');
 }
 
