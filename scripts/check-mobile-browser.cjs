@@ -3,7 +3,7 @@ const {chromium}=require('playwright');
 const assert=require('node:assert/strict');
 const path=require('node:path');
 (async()=>{
- const browser=await chromium.launch({headless:true});
+ const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{})});
  let errors=[],failures=[];
  for(const width of [320,360,390,768]){
   const context=await browser.newContext({viewport:{width,height:844},timezoneId:'Europe/Berlin',reducedMotion:'reduce',colorScheme:width===390?'light':'dark'});
@@ -33,6 +33,27 @@ const path=require('node:path');
   assert.equal(await page.locator('#parameter-help-dialog').evaluate(d=>d.open),false,'Parameter explanation did not close');
   await page.locator('#navigation button[data-page="weather"]').click();
   assert.ok(await page.locator('#page-weather.active .forecast').count(),'7-day forecast missing');
+  const firstDay=page.locator('.real-day[data-day="0"]');
+  await firstDay.click();
+  assert.equal(await firstDay.getAttribute('aria-expanded'),'true');
+  assert.equal(await page.locator('[data-period]').count(),4);
+  const afternoon=page.locator('[data-period="2"]');
+  await afternoon.click();
+  assert.equal(await afternoon.getAttribute('aria-expanded'),'true');
+  assert.match(await page.locator('#period-details').innerText(),/Nachmittag/);
+  assert.match(await page.locator('#period-details').innerText(),/Niederschlagsdauer/);
+  assert.match(await page.locator('#period-details').innerText(),/Taupunkt/);
+  await page.locator('[data-period="1"]').click();
+  assert.equal(await afternoon.getAttribute('aria-expanded'),'false');
+  assert.match(await page.locator('#period-details').innerText(),/Vormittag/);
+  const expanded=await page.evaluate(()=>document.documentElement.scrollWidth);
+  if(expanded>width+3)failures.push(width+'px expanded forecast overflow '+expanded);
+  await page.locator('[data-close-period]').click();
+  assert.equal(await page.locator('#period-details').count(),0);
+  await afternoon.click();
+  await page.locator('.real-day[data-day="1"]').click();
+  assert.equal(await page.locator('#period-details').count(),0);
+  assert.equal(await page.locator('[data-period]').count(),4);
   await page.screenshot({path:'ui-'+width+'.png',fullPage:true});
   await context.close();
  }
