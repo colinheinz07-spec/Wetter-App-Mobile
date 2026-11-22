@@ -56,6 +56,9 @@ assert storm_code(explicit,convective)==12
 hourly={**field(end,ww=61,temp2=8),**{(i*3600,'rainTotal'):fill(v) for i,v in enumerate([0,0,17,18])}}
 assert r.analyze(hourly,end)['rain'][0]==1 # not missed by 3h threshold
 assert r.analyze(field(end,temp2=0),end)['frost'][0]==0
+assert r.analyze({**field(end,temp2=2),**field(end-3600,temp2=-1)},end)['frost'][0]==1
+regional=[dict(model='ICON-D2',run=0,step=.02,fields=field(end,temp2=-2)),dict(model='ICON-EU',run=0,step=.06,fields=field(end,temp2=-3)),dict(model='GFS',run=0,step=.25,fields=field(end,temp2=2))]
+assert base64.b64decode(r.build(0,regional,[end])['periods'][0]['layers']['frost'])[0]==31 # not two independent families
 snowfields=field(end,temp2=-2,ww=71,rainTotal=10,snowGspTotal=5,snowConTotal=1)
 snowfields.update(field(0,temp2=-2,rainTotal=0,snowGspTotal=0,snowConTotal=0))
 assert abs(r.fresh_snow_cm(snowfields,end)[0]-5.64)<.01

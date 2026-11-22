@@ -31,11 +31,11 @@ assert.ok(Number.isNaN(snowApi.newSnowInterval(interval(0,snowFrame(0),snowFrame
 close(snowApi.newSnowInterval(interval(0,snowFrame(0,{snowGspTotal:0,snowConTotal:0}),snowFrame(1,{snowGspTotal:1,snowConTotal:1,ww:68}),3)),1.4);
 const coarse={start:0,end:3*hour,hours:3,before:snowFrame(0,{snowWaterTotal:0}),frame:snowFrame(3,{snowWaterTotal:3}),amount:3};
 close(snowApi.periodNewSnow({start:hour,end:2*hour,nativeIntervals:[coarse]}),.7);
-assert.match(snowApi.forecastPrecipText({rain:1,newSnow:.7,weather:{icon:'21_schnee_2'}},'',true),/0\.5–1 cm.*Neuschnee/);
+assert.match(snowApi.forecastPrecipText({rain:1,newSnow:.7,weather:{icon:'21_schnee_2'}},'',true),/0–1 cm.*Neuschnee/);
 assert.equal(snowApi.forecastPrecipText({rain:1,newSnow:0,weather:{icon:'11_regen_1'}}),'1–2 mm');
 assert.equal(snowApi.forecastPrecipText({rain:1,newSnow:NaN,weather:{icon:'21_schnee_2'}}),'0–2 cm Neuschnee');
 assert.equal(snowApi.forecastPrecipText({rain:NaN,newSnow:NaN,weather:{icon:'21_schnee_2'}}),'Menge unklar Neuschnee');
-for(const [v,text] of [[0,'0 mm'],[.2,'0–0.5 mm'],[1.4,'1–2 mm'],[4.1,'2–5 mm'],[9.4,'5–10 mm'],[12,'10–20 mm'],[28,'20–50 mm'],[72,'50–100 mm']])assert.equal(snowApi.quantityRange(v),text);
+for(const [v,text] of [[0,'0 mm'],[.2,'0–1 mm'],[1.4,'1–2 mm'],[4.1,'2–5 mm'],[9.4,'5–10 mm'],[12,'10–20 mm'],[28,'20–50 mm'],[72,'50–100 mm']])assert.equal(snowApi.quantityRange(v),text);
 const mixedInterval=interval(0,snowFrame(0),snowFrame(1,{ww:68}),1);
 const uncertain={start:0,end:hour,rain:1,nativeIntervals:[mixedInterval]};
 assert.deepEqual(Array.from(snowApi.periodNewSnowBounds(uncertain)),[0,1.6]);

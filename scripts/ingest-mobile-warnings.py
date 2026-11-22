@@ -14,7 +14,7 @@ import numpy as np
 
 ROOT='https://raw.githubusercontent.com/colinheinz07-spec/Wetter-App/generated-native-'
 GRID=dict(west=5.5,south=47.,step=.02,nx=481,ny=411)
-MODELS=(('ICON-D2','icon-d2-de',18),('IFS','ifs-de',24),('GFS','gfs-de',24))
+MODELS=(('ICON-D2','icon-d2-de',18),('ICON-EU','icon-eu-de',24),('IFS','ifs-de',24),('GFS','gfs-de',24))
 FIELDS=('temp2','gust','visibility','ww','ptype','rainTotal','convTotal','tground','rh2','mlcape','mucape','mlcin','s06','orog','ship','stp','snowWaterTotal','snowGspTotal','snowConTotal')
 TYPES=('frost','wind','heat','fog','snow','freezing','ice','rain','durationrain','storm','stormwind','stormrain','hail','rotation')
 POTENTIAL={'ice','stormwind','stormrain','hail','rotation'}
@@ -37,7 +37,7 @@ def load_model(name,branch,max_age,now,ends):
     m=read(root+'index.json');run=timestamp(m['run']);g=m['grid']
     if m['schema']!=2 or m['model']!=name or not 0<=now-run<=max_age*3600:raise ValueError('stale or invalid run')
     idx,valid=grid_indices(g); targets=set(ends)|{e-shift for e in ends for shift in (10800,21600,32400,43200)}
-    hourly_rain={e-shift for e in ends if e<=now+27*3600 for shift in (3600,7200)}
+    hourly_rain={e-shift for e in ends if e<=now+48*3600 for shift in (3600,7200)}
     hours={h for h in m['hours'] if run+h*3600 in targets|hourly_rain}
     def load(pair):
         h,k=pair
@@ -50,7 +50,7 @@ def load_model(name,branch,max_age,now,ends):
             return (run+h*3600,k),arr
         except Exception as e:
             print(name,h,k,str(e)[:100],flush=True);return (run+h*3600,k),None
-    jobs=[(h,k) for h in hours for k in FIELDS if k in m['frames'][str(h)] and (run+h*3600 in ends or run+h*3600 in targets and k in ('rainTotal','convTotal','temp2','ww','ptype','snowWaterTotal','snowGspTotal','snowConTotal') or run+h*3600 in hourly_rain and k=='rainTotal')]
+    jobs=[(h,k) for h in hours for k in FIELDS if k in m['frames'][str(h)] and (run+h*3600 in ends or run+h*3600 in targets and k in ('rainTotal','convTotal','temp2','ww','ptype','snowWaterTotal','snowGspTotal','snowConTotal') or run+h*3600 in hourly_rain and k in ('rainTotal','temp2'))]
     with ThreadPoolExecutor(max_workers=10) as pool:fields={k:v for k,v in pool.map(load,jobs) if v is not None}
     if not fields:raise ValueError('no valid fields')
     return dict(model=name,run=run,fields=fields,step=g['step'])
@@ -132,6 +132,9 @@ def direct_storm(fields,end):
     cin=field_value(fields,end,'mlcin');convective=delta(fields,end,'convTotal')
     return np.isin(ww,[95,96,99])|((convective>=.5)&(cape>=500)&(np.abs(cin)<=125))
 
+def minimum_temp(fields,end):
+    return np.fmin.reduce([field_value(fields,end-offset,'temp2') for offset in (0,3600,7200)])
+
 def analyze(fields,end):
     def val(k,t=end):return fields.get((t,k),np.full(N,np.nan,dtype=np.float32))
     t=val('temp2');gust=val('gust');v=val('visibility');ww=val('ww');pt=val('ptype');ground=val('tground');rh=val('rh2');orog=val('orog')
@@ -157,7 +160,7 @@ def analyze(fields,end):
     conv_rain_level=np.maximum(np.where(np.isfinite(rain),levels(rain,[20,35,55,80]),0),np.where(np.isfinite(hour_peak),levels(hour_peak,[15,25,40,60]),0))
     conv_rain=np.where(conv_known&(np.isfinite(rain)|np.isfinite(hour_peak)),np.where(conv,conv_rain_level,0),255).astype(np.uint8)
     causes=ice_causes(fields,end)
-    frost=levels(-t,[.0001,5,10,20])
+    frost=levels(-minimum_temp(fields,end),[.0001,5,10,20])
     snow_cm=fresh_snow_cm(fields,end)
     snow_signal=np.isin(ww,[70,71,72,73,74,75,77,85,86])|(np.isin(pt,[5,6])&wet)|(snow_cm>=.1)
     snow_levels=categorical(phase_known|np.isfinite(snow_cm),snow_signal)
@@ -182,6 +185,13 @@ def combine(arrays,kind):
     out[both]=(20+common[both]) if kind in POTENTIAL else (10+common[both])
     return out
 
+def family_arrays(models,arrays):
+    families={}
+    for m,a in sorted(zip(models,arrays),key=lambda x:x[0]['step']):
+        family='DWD' if m['model'].startswith('ICON') else m['model']
+        families[family]=np.where(families[family]==255,a,families[family]) if family in families else a.copy()
+    return list(families.values())
+
 def build(now,models,ends,watch=False):
     periods=[]
     # Keep long-range outlooks smaller than the high-resolution 24h product.
@@ -192,18 +202,26 @@ def build(now,models,ends,watch=False):
     cutoff=now+86400
     for end in ends:
         rows=[analyze(m['fields'],end) for m in models]
-        codes={k:combine([r[k] for r in rows],k) for k in TYPES}
+        codes={k:combine(family_arrays(models,[r[k] for r in rows]),k) for k in TYPES}
+        # A localized frost indication in the high-resolution regional model
+        # can justify a precautionary forecast even without global agreement.
+        # Keep this distinct from multiple independent model families.
+        if not watch:
+            regional=next((r['frost'] for m,r in zip(models,rows) if m['model']=='ICON-D2'),None)
+            if regional is not None:
+                local=(regional>0)&(regional<255)&(codes['frost']>=1)&(codes['frost']<=4)
+                codes['frost'][local]=30+regional[local]
         # CAPE/CIN plus precipitation are ingredients, not proof of a storm.
         # A forecast warning requires independent explicit thunder/convection
         # signals; otherwise keep the event visibly in the risk layer.
-        explicit=[np.where(direct_storm(m['fields'],end),row['storm'],0).astype(np.uint8) for m,row in zip(models,rows)]
-        confirmed=combine(explicit,'storm');active=(confirmed>=11)&(confirmed<=14)
+        explicit=[np.where(row['storm']==255,255,np.where(direct_storm(m['fields'],end),row['storm'],0)).astype(np.uint8) for m,row in zip(models,rows)]
+        confirmed=combine(family_arrays(models,explicit),'storm');active=(confirmed>=11)&(confirmed<=14)
         uncertain=(codes['storm']>=11)&(codes['storm']<=14)&~active
         codes['storm'][uncertain]+=10
         codes['storm'][active]=confirmed[active]
         # Agreement on wet/snow/ice precipitation justifies a forecast warning;
         # humidity alone remains a risk (road surface state is not measured).
-        direct_ice=sum(((ice_causes(m['fields'],end)&7)>0).astype(np.uint8) for m in models)
+        direct_ice=sum(a==1 for a in family_arrays(models,[np.where(row['ice']==255,255,(ice_causes(m['fields'],end)&7)>0).astype(np.uint8) for m,row in zip(models,rows)]))
         codes['ice'][(codes['ice']>=21)&(codes['ice']<=24)&(direct_ice>=2)]-=10
         # Do not create another Watch for a continuous, already warned event.
         if watch:
@@ -227,6 +245,7 @@ def build(now,models,ends,watch=False):
                 elif field=='rainTotal':values=delta(f,end,'rainTotal')
                 elif field=='hourRain':values=peak_hour_rain(f,end)
                 elif field=='iceCause':values=ice_causes(f,end).astype(np.float32)
+                elif kind=='frost':values=minimum_temp(f,end)
                 else:values=field_value(f,end,field)
                 valid=(row[hazard]>0)&(row[hazard]<255)&np.isfinite(values)&~np.isfinite(chosen)
                 chosen[valid]=values[valid]
@@ -242,9 +261,6 @@ def main():
         try:return load_model(*spec,now,ends)
         except Exception as e:print(spec[0],str(e),flush=True);return None
     with ThreadPoolExecutor(max_workers=3) as pool:models=[m for m in pool.map(get_model,MODELS) if m]
-    if not any(m['model']=='ICON-D2' for m in models):
-        fallback=get_model(('ICON-EU','icon-eu-de',24))
-        if fallback:models.insert(0,fallback)
     if not models:raise RuntimeError('No usable model runs')
     import sys
     data=build(now,models,ends);path=Path(sys.argv[1] if len(sys.argv)>1 else 'data/national-risks.json.gz');path.parent.mkdir(parents=True,exist_ok=True)

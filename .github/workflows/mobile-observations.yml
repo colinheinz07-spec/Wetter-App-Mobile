@@ -1,0 +1,56 @@
+name: Mobile observed weather and precipitation history
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '4,14,24,34,44,54 * * * *'
+  push:
+    branches: [main]
+    paths: ['scripts/ingest-observed-surface.py','scripts/ingest-radar-history.py','.github/workflows/mobile-observations.yml']
+permissions:
+  contents: write
+jobs:
+  observations:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - branch: mobile-observed-surface
+            script: ingest-observed-surface.py
+            file: surface-observations.json.gz
+          - branch: mobile-radar-history
+            script: ingest-radar-history.py
+            file: radar-history.json.gz
+    concurrency:
+      group: ${{ matrix.branch }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - if: matrix.branch == 'mobile-radar-history'
+        run: pip install h5py numpy pyproj
+      - if: matrix.branch == 'mobile-observed-surface'
+        run: pip install numpy scipy
+      - run: python scripts/${{ matrix.script }}
+      - name: Publish validated independent snapshot
+        env:
+          BRANCH: ${{ matrix.branch }}
+          PACKET: ${{ matrix.file }}
+        run: |
+          git config user.name 'Wetter Mobile Data'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          ref="refs/heads/$BRANCH"
+          subject="Generated $BRANCH snapshot"
+          previous=$(git ls-remote --heads origin "$ref" | cut -f1)
+          if test -n "$previous"; then
+            git fetch --depth=1 origin "$previous"
+            test "$(git ls-tree -r --name-only "$previous")" = "$PACKET"
+            test "$(git log -1 --format=%s "$previous")" = "$subject"
+          fi
+          blob=$(git hash-object -w "data/$PACKET")
+          tree=$(printf '100644 blob %s\t%s\n' "$blob" "$PACKET" | git mktree)
+          commit=$(git commit-tree "$tree" -m "$subject")
+          git push --force-with-lease="$ref:$previous" origin "$commit:$ref"

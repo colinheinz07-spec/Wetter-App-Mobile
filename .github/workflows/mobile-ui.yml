@@ -10,6 +10,10 @@ on:
       - 'scripts/check-mobile-browser.cjs'
       - 'scripts/test-data-performance*.cjs'
       - 'scripts/test-live-observations.cjs'
+      - 'scripts/test-observations.cjs'
+      - 'scripts/test-observations-browser.cjs'
+      - 'scripts/test-radar-phase.cjs'
+      - 'scripts/test-forecast-period-details.cjs'
       - '.github/workflows/mobile-ui.yml'
   pull_request:
 permissions:
@@ -26,6 +30,9 @@ jobs:
       - run: node scripts/check-mobile.cjs
       - run: node scripts/test-data-performance-unit.cjs
       - run: node scripts/test-live-observations.cjs
+      - run: node scripts/test-observations.cjs
+      - run: node scripts/test-radar-phase.cjs
+      - run: node scripts/test-forecast-period-details.cjs
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 18
@@ -38,6 +45,8 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Test actual app in mobile browser
         run: node scripts/check-mobile-browser.cjs
+      - name: Test observation data and current frost on iPad layout
+        run: node scripts/test-observations-browser.cjs
       - name: Test storm tracking and live warning lifecycle
         run: node scripts/test-storm-browser.cjs
       - name: Test model and radar availability, caching and explanations

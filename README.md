@@ -1,6 +1,6 @@
 # Wetter-App-Mobile
 
-Schlankes App-Projekt für die Entwicklung in **SPCK**. Hier liegt **nur der Wetter-App-Code**; keine mehrgigabytegroßen Wetterraster, keine automatischen Datenimporte und keine alten Modellläufe.
+Schlankes App-Projekt für die Entwicklung in **SPCK**. Auf `main` liegt der Wetter-App-Code einschließlich eigener Importer; keine großen Wetterraster und keine alten Modellläufe.
 
 ## In SPCK verwenden
 
@@ -14,12 +14,17 @@ Schlankes App-Projekt für die Entwicklung in **SPCK**. Hier liegt **nur der Wet
 - **Wetter-App-Mobile** (dieses Repository): `index.html`, `assets/`, Bedienelemente, Wetterdarstellung, Straßenwetter und Pegel.
 - **Wetter-App** (Daten-Repository): `https://github.com/colinheinz07-spec/Wetter-App` – Wettermodell-Vorhersagen, Radar, Kartenraster und GitHub-Actions-Datenimporte.
 - Die App lädt benötigte Wetterdaten online aus dem bisherigen Daten-Repository bzw. amtlichen Schnittstellen. Sie braucht die großen Datendateien nicht im lokalen SPCK-Projekt.
-- **Entwicklung ab jetzt:** Änderungen an der App-Oberfläche gehören hier auf `main`. Neue Wettermodell-Importer und Hintergrund-Daten gehören ins ursprüngliche Wetter-App-Repository. Kein automatisches gegenseitiges Überschreiben der beiden `main`-Branches.
+- **Entwicklung ab jetzt:** App-Oberfläche und mobile eigene Beobachtungssysteme gehören hier auf `main`. Die bestehenden Wettermodell-Importer bleiben im ursprünglichen Wetter-App-Repository. Neue mobile Beobachtungsdaten werden ausschließlich in separaten rollierenden Mobile-Datenbranches veröffentlicht. Kein Überschreiben der beiden `main`-Branches.
 
 ## Funktionen
 
 - Aktuelle ortsbezogene Wetterwerte und Stundenverlauf
-  - Live-Wetter: jüngster DWD ICON-D2-RUC Anfangszustand (Analysezeit), direkt aus der nächsten nativen dreieckigen 2,2-km-Gitterzelle der Ortskoordinaten. Kein Ersatz durch Messstationen. Böen sind diagnostizierte Modellwerte zum Analysezeitpunkt beziehungsweise ein gekennzeichnetes abgeschlossenes Modellintervall. Fehlende oder veraltete Analysen werden ausdrücklich durch gekennzeichnete örtliche Modellwerte ersetzt, sofern zeitnah verfügbar. Die Stunden- und Tagesvorhersagen bleiben unabhängig.
+  - Live-Wetter: frische DWD SYNOP-Messwerte einer sehr nahen, höhenverträglichen Station (als Station gekennzeichnet) oder räumliche Analyse mehrerer Messstationen. ICON-D2-RUC und regionale +0-h-Anfangszustände bleiben ausdrücklich getrennt gekennzeichnete modellgestützte Analysen. Positive Prognose-Leads werden nicht als Live-Beobachtung verwendet.
+  - Niederschlagsart: DWD HYMEC-NG, abgestimmt auf frische Radarscans; direkte, zeitlich und räumlich passende Bodenmeldungen haben lokal Vorrang. Ohne belastbare Phase bleibt die Niederschlagsart unbekannt. Modellphasen sind nur bei zukünftigen Radarprognosen erlaubt.
+  - Tagesbilanz: tatsächliche RADOLAN-Wasseräquivalente aus disjunkten RW-Stunden- und RY-5-Minuten-Intervallen; RY füllt nur fehlende bzw. jüngere RW-Intervalle. Fehlende Rasterzellen werden nicht als null gewertet. Der angezeigte heutige Höchstwert enthält nur den beobachteten Verlauf und noch nicht abgelaufene Prognosewerte. Tatsächliche Teilmengen und Restprognose werden separat angezeigt.
+  - Radar-Nowcast: DWD RV bis zur verfügbaren Prognosezeit (max. 120 Minuten), danach Modell. Eine darüber hinausgehende Ereigniszuordnung und Bias-Korrektur ist noch nicht validiert; Prognosen nach dem RV-Horizont werden daher nicht pauschal abgezogen.
+- Live-Karten: grüne Landflächen, helle SYNOP-Bewölkungsanalyse und Niederschlag darüber; graue Bewölkungsflächen ohne ausreichende Messorte. Das SYNOP-Feld ist eine räumliche Analyse, keine hochaufgelöste Satelliten-Wolkenmaske. Grün außerhalb des Beobachtungsbereichs ist lediglich Land, kein Sonnenscheinnachweis.
+- Warnungen: tatsächlicher lokaler Luftfrost bereits unter 0 °C (Schwellenprüfung vor Rundung); Beobachtungsflächen aus SYNOP. Regionalmodell-Signale werden vorsorglich lokal gewarnt, unabhängige Modellfamilien nicht doppelt gezählt. Innerhalb dreistündiger Prognoseintervalle werden verfügbare Stundenminima berücksichtigt; Warnflächen sind zusammenhängende Konturen, nicht einzelne Gemeinde- oder Rasterquadrate.
 - 7-Tage-Prognosen und Warnungen
 - Wettermodellkarten, Radar und Expertenbereich
 - Straßenwetter (amtliche DWD-SWSMOS-Prognosen von nahegelegenen Stationen)
@@ -31,6 +36,8 @@ Bei fehlenden Daten sind amtliche Informationsangebote maßgeblich. Der Gefahren
 
 ## Code-Struktur
 
-Die Oberfläche liegt in `index.html`, die vollständige bisherige Wetterlogik unverändert in `assets/app.js`, das Grundlayout in `assets/base.css`, die neue Gestaltung in `assets/mobile-design.css`. Karten-Geografie und Gefahrenbereich bleiben eigenständige Dateien. Der Code wird beim Laden in dieser Reihenfolge eingebunden; **keine** Wetterdaten werden in SPCK eingecheckt.
+Die Oberfläche liegt in `index.html`, Wetterlogik in `assets/app.js`, das Grundlayout in `assets/base.css`, die Gestaltung in `assets/mobile-design.css`. Karten-Geografie und Gefahrenbereich bleiben eigenständige Dateien. **Keine** Wetterdaten werden auf `main` in SPCK eingecheckt.
+
+`assets/observations.js` verwaltet Beobachtungszeit, Stationsabdeckung, historische Temperaturwerte und RADOLAN-Intervalle unabhängig vom Modellcode. `.github/workflows/mobile-observations.yml` startet die beiden unabhängigen Importe regelmäßig alle zehn Minuten (GitHub-Zeitplanung kann sich verzögern). Datenquellen: [DWD SYNOP](https://opendata.dwd.de/weather/weather_reports/synoptic/germany/geojson/), [RADOLAN RW](https://opendata.dwd.de/weather/radar/radolan/rw/), [RADOLAN RY](https://opendata.dwd.de/weather/radar/radolan/ry/). Daten liegen auf `mobile-observed-surface` und `mobile-radar-history`; die App akzeptiert nur zeitlich und strukturell gültige Pakete. Radar-Historie ist zeilenweise verlustfrei komprimiert für punktuelle Abfragen auf Mobilgeräten.
 
 Qualitätsprüfung auf GitHub: `node scripts/check-mobile.cjs` und Chromium-Tests unter `.github/workflows/mobile-ui.yml`.

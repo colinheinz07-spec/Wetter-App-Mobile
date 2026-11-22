@@ -37,11 +37,11 @@ vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`
  vm.runInContext(chunk('let radarPhaseData=','async function fetchRadarPhase')+chunk('function cloudWeather(','function frameWeather(')+chunk('function currentCloudWeather(','function liveHeroWeatherHTML')+chunk('function phaseCodeFromModel(','function localRadarPhaseDetail'),live);
  const check=(code,name)=>assert.equal(vm.runInContext("livePhaseWeather(frame,radar,{code:"+code+",time:sampleTime},[8,50],now).condition",live),name);
  check(7,'Schneefall');check(6,'Schneeregen');check(5,'Gefrierender Regen');check(3,'Regen');
- assert.equal(vm.runInContext("livePhaseWeather(frame,radar,null,[8,50],now).condition",live),'Schneefall (geschätzt)');
+ assert.equal(vm.runInContext("livePhaseWeather(frame,radar,null,[8,50],now).condition",live),'Niederschlag · Art nicht bestimmt');
  assert.equal(vm.runInContext("livePhaseWeather(null,radar,null,[8,50],now).condition",live),'Niederschlag · Art nicht bestimmt');
  assert.equal(vm.runInContext("livePhaseWeather({...frame,time:now-2*3600000},radar,null,[8,50],now).condition",live),'Niederschlag · Art nicht bestimmt','old model rain cannot be live type');
  assert.equal(vm.runInContext("phaseCodeFromModel(61,1,.1,-.1,99,true)",live),7,'near-freezing liquid model cannot blindly make observed radar rain');
- assert.equal(vm.runInContext("livePhaseWeather(frame,{amount:0,rate:0,time:sampleTime},{code:0,time:sampleTime},[8,50],now).condition",live),'Bedeckt');
+ assert.equal(vm.runInContext("livePhaseWeather(frame,{amount:0,rate:0,time:sampleTime},{code:0,time:sampleTime},[8,50],now,{cloud:{kind:'observation',value:99}}).condition",live),'Bedeckt');
  assert.equal(vm.runInContext("cloudWeather(.4,true).icon",live),'07_klare_nacht');
  assert.equal(vm.runInContext("currentCloudWeather(frame,[8,50],now,{cloud:{kind:'analysis',value:.4}}).icon",live),'01_sonnig');
  assert.equal(vm.runInContext("cloudWeather(44,true).icon",live),'09_nachts_wolkig');

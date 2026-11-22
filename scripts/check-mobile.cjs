@@ -7,11 +7,11 @@ const html=fs.readFileSync('index.html','utf8');
 const source=fs.readFileSync('assets/app.js','utf8');
 const baseCss=fs.readFileSync('assets/base.css','utf8');
 const css=fs.readFileSync('assets/mobile-design.css','utf8');
-const files=['index.html','assets/app.js','assets/base.css','assets/basemap.js','assets/geography.js','assets/hazards.js','assets/mobile-design.css','assets/weather-icons.js'];
+const files=['index.html','assets/app.js','assets/observations.js','assets/base.css','assets/basemap.js','assets/geography.js','assets/hazards.js','assets/mobile-design.css','assets/weather-icons.js'];
 const size=files.reduce((n,f)=>n+fs.statSync(f).size,0);
 assert.ok(size<4*1024*1024,'SPCK files grew beyond 4 MiB: '+size);
 assert.ok(!fs.existsSync('data'),'Large data/ directory must not be included in mobile project');
-for(const f of ['assets/basemap.js','assets/geography.js','assets/hazards.js']){
+for(const f of ['assets/basemap.js','assets/geography.js','assets/hazards.js','assets/observations.js']){
  new vm.Script(fs.readFileSync(f,'utf8'),{filename:f});
 }
 const scripts=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].filter(match=>match[1].trim().length>0);
