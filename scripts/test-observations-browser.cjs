@@ -31,6 +31,8 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),path
   assert.match(await page.locator('#map-interval').innerText(),/Flächendeckende aktuelle/);
   await page.locator('#map-live-layer').selectOption('wind');await page.waitForFunction(()=>document.querySelector('#map-data-notice').textContent==='DWD · +0 h Analyse');
   await page.locator('#map-live-layer').selectOption('satellite');await page.waitForFunction(()=>document.querySelector('#map-layer-title').textContent==='Satellitenwolken + Niederschlagsradar');
+  assert.match(await page.locator('.live-map-note').innerText(),/Echte Beobachtungen/);
+  assert.equal(await page.locator('#map-live-scenario').isVisible(),false);
   assert.match(await page.locator('#map-valid').innerText(),/Satellit:.*Radar:/);
   assert.equal(await page.evaluate(()=>WeatherObservation.sampleField(WeatherObservation.cloudField(),[7.95,50.65])),100);
   await page.screenshot({path:'ui-ipad-live-satellite.png'});
