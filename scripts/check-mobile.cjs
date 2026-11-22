@@ -77,7 +77,12 @@ for(let tier=1;tier<=3;tier++){
  const mixed=render((27+tier)+'_schneeregen_'+tier);
  assert.equal(occurrences(mixed,'wx-drop'),tier);assert.equal(occurrences(mixed,'wx-flake'),tier);
 }
-assert.equal(occurrences(render('33_gefrierender_regen'),'wx-ice-line'),1);
+const freezingRain=render('33_gefrierender_regen');
+assert.equal(occurrences(freezingRain,'wx-drop'),2);
+assert.equal(occurrences(freezingRain,'wx-ice-warning'),1);
+assert.equal(occurrences(freezingRain,'wx-ice-line'),0);
+assert.equal(freezingRain.split('fill="var(--wx-rain-4)"').length-1,2,'Freezing rain must retain blue raindrops');
+assert.equal(occurrences(render('14_regen_4'),'wx-ice-warning'),0);
 assert.ok(render('57_gewitter_schneeregen').includes('wx-bolt'));
 assert.ok(render('67_schneegewitter_sturm').includes('wx-windsock'));
 assert.ok(render('01_sonnig','<unsafe>').includes('&lt;unsafe&gt;'));

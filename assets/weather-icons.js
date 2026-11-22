@@ -81,9 +81,9 @@
  const moon=small=>`<path fill="var(--wx-moon)" stroke="var(--wx-sun-edge)" stroke-width="${small?1.6:2.7}" transform="translate(${small?'58 4':'23 20'}) scale(${small?1.35:2.5})" d="M24 17A13 13 0 1 1 12 3A11 11 0 0 0 24 17Z"/>`;
  // A closed, upright teardrop and a six-armed crystal use separate silhouettes
  // as well as saturated blue and magenta. No blur/whole-image color filter.
- function drop(x,y,r,grade,ice){
+ function drop(x,y,r,grade){
   const d=`M${x} ${y-r} C${x-r*.48} ${y-r*.24} ${x-r*.7} ${y+r*.1} ${x-r*.7} ${y+r*.38} A${r*.7} ${r*.7} 0 0 0 ${x+r*.7} ${y+r*.38} C${x+r*.7} ${y+r*.1} ${x+r*.48} ${y-r*.24} ${x} ${y-r} Z`;
-  return `<path class="wx-drop" fill="var(--wx-${ice?'ice':'rain-'+grade})" d="${d}"/>`;
+  return `<path class="wx-drop" fill="var(--wx-rain-${grade})" d="${d}"/>`;
  }
  function snow(x,y,r,grade){
   // Three axes plus branching tips. Thick enough for a 36 px day icon.
@@ -112,16 +112,18 @@
   const kinds=[];
   for(let i=0;i<Math.max(rain,flakes);i++){if(i<rain)kinds.push('rain');if(i<flakes)kinds.push('snow')}
   const twoRows=count>4||thunder&&count>2;
-  const left=thunder?42:8,right=94,y=fog?85:ice?73:76;
+  const left=thunder?42:8,right=94,y=fog?85:ice?65:76;
   const positions=layout(count,left,right,y,twoRows);
+  // Blue raindrops flank the warning triangle; freezing rain is still rain.
+  if(ice){positions[0]=[25,65];positions[1]=[75,65]}
   if(key==='66_gefrierender_nebel')positions[0]=[86,66];
   const r=fog?7.4:twoRows?8:thunder?8.8:count<=2?11.5:count===3?10:8.7;
   kinds.forEach((kind,i)=>{
    const [x,cy]=positions[i];
-   out+=kind==='rain'?drop(x,cy,r,rainGrade,ice):snow(x,cy,r,Math.max(1,Math.min(5,grade)));
+   out+=kind==='rain'?drop(x,cy,r,rainGrade):snow(x,cy,r,Math.max(1,Math.min(5,grade)));
   });
   if(thunder)out+=bolt(count?25:50);
-  if(ice)out+='<path class="wx-ice-line" d="M22 92H78" stroke="var(--wx-ice)" stroke-width="4" stroke-linecap="round"/>';
+  if(ice)out+='<g class="wx-ice-warning"><path d="M50 66L68 96H32Z" fill="#ffca47" stroke="#8d4100" stroke-width="2.8" stroke-linejoin="round"/><path d="M50 78V86" stroke="#392100" stroke-width="4.5" stroke-linecap="round"/><circle cx="50" cy="91" r="2.5" fill="#392100"/></g>';
   if(wind)out+=windsock(!grade);
   return out;
  }
