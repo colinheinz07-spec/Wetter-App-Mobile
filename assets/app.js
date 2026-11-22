@@ -1961,10 +1961,10 @@ function acceptRadarPhase(d){const t=Date.parse(d.time),now=Date.now();if(t>now|
 const mobileRadarRoot='https://raw.githubusercontent.com/colinheinz07-spec/Wetter-App-Mobile/mobile-radar-';
 async function fetchRadarSnapshots(kind,legacyBranch,file,decode,accept,cacheKey){
  const suffix=file+'?t='+Math.floor(Date.now()/60000),urls=[mobileRadarRoot+kind+'/'+suffix,dataRoot.replace('/main/data/','/'+legacyBranch+'/')+suffix];
- await Promise.allSettled(urls.map(async url=>{try{const r=await fetch(url,{signal:AbortSignal.timeout(9000),cache:'default',credentials:'omit',priority:'high'});if(!r.ok)return;
+ for(const [i,url] of urls.entries())try{const r=await fetch(url,{signal:AbortSignal.timeout(i?9000:3500),cache:'default',credentials:'omit',priority:'high'});if(!r.ok)continue;
   const a=await r.arrayBuffer(),b=new Uint8Array(a),d=decode(b[0]===31&&b[1]===139?await new Response(new Blob([a]).stream().pipeThrough(new DecompressionStream('gzip'))).json():JSON.parse(new TextDecoder().decode(a)));
-  if(accept(d))writeRadarCache(cacheKey,a);
- }catch{}}));
+  if(!ownRadarFresh(d,20))continue;if(accept(d))writeRadarCache(cacheKey,a);return;
+ }catch{}
 }
 let radarPhaseCheck=0;
 async function fetchRadarPhase(){
