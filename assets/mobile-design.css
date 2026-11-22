@@ -128,6 +128,8 @@ a{color:var(--accent2)}
 .hour .weather-symbol{width:43px;height:43px;object-fit:contain}
 .hour strong{font-size:19px;font-weight:770}
 .hour .rain{font-weight:720;color:#a7e1f3}
+.hour .rain .snow-label{display:block;font-size:.82em;line-height:1.2;font-weight:650}
+.hour .rain{white-space:normal;text-align:center}
 #hour-detail{border-top:1px solid var(--line);padding-top:13px}
 .detail-item{line-height:1.4}
 .detail-item b{line-height:1.4;font-weight:720}
