@@ -34,7 +34,7 @@ vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`
  const sampleTime=now-5*60000,frame={d:{model:'ICON-D2'},time:sampleTime,values:{temp2:.1,rh2:99,cloud:99,ww:61}},radar={amount:.05,rate:.6,time:sampleTime};
  const read=(f,id)=>f?.values?.[id]??NaN;
  const live=vm.createContext({atob,frameVal:read,frameHumidity:f=>read(f,'rh2'),isNightAt:()=>false,fogCondition:()=>null,frameWeather:f=>f?{icon:'11_regen_1',condition:'Regen',source:'Modell'}:{icon:null,condition:'Wetterzustand nicht verfügbar',source:'Modell'},localTime:()=> '18:25',Date:TestDate,Math,Number,frame,radar,sampleTime,now});
- vm.runInContext(chunk('let radarPhaseData=','async function fetchRadarPhase')+chunk('function currentCloudWeather(','function liveHeroWeatherHTML')+chunk('function phaseCodeFromModel(','function localRadarPhaseDetail'),live);
+ vm.runInContext(chunk('let radarPhaseData=','async function fetchRadarPhase')+chunk('function cloudWeather(','function frameWeather(')+chunk('function currentCloudWeather(','function liveHeroWeatherHTML')+chunk('function phaseCodeFromModel(','function localRadarPhaseDetail'),live);
  const check=(code,name)=>assert.equal(vm.runInContext("livePhaseWeather(frame,radar,{code:"+code+",time:sampleTime},[8,50],now).condition",live),name);
  check(7,'Schneefall');check(6,'Schneeregen');check(5,'Gefrierender Regen');check(3,'Regen');
  assert.equal(vm.runInContext("livePhaseWeather(frame,radar,null,[8,50],now).condition",live),'Schneefall möglich');
@@ -42,6 +42,12 @@ vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`
  assert.equal(vm.runInContext("livePhaseWeather({...frame,time:now-2*3600000},radar,null,[8,50],now).condition",live),'Niederschlag · Art nicht bestimmt','old model rain cannot be live type');
  assert.equal(vm.runInContext("phaseCodeFromModel(61,1,.1,-.1,99,true)",live),7,'near-freezing liquid model cannot blindly make observed radar rain');
  assert.equal(vm.runInContext("livePhaseWeather(frame,{amount:0,rate:0,time:sampleTime},{code:0,time:sampleTime},[8,50],now).condition",live),'Bedeckt');
+ assert.equal(vm.runInContext("cloudWeather(.4,true).icon",live),'07_klare_nacht');
+ assert.equal(vm.runInContext("currentCloudWeather(frame,[8,50],now,{cloud:{kind:'analysis',value:.4}}).icon",live),'01_sonnig');
+ assert.equal(vm.runInContext("cloudWeather(44,true).icon",live),'09_nachts_wolkig');
+ const modelSky=vm.createContext({frameVal:read,fogCondition:()=>null,isNightAt:()=>true});
+ vm.runInContext(chunk('function cloudWeather(','function dailyWeatherFrame('),modelSky);
+ assert.equal(vm.runInContext("frameWeather({d:{model:'ICON-D2'},values:{cloud:.4,ww:3},time:0,point:[8,50]}).icon",modelSky),'07_klare_nacht','Dry categorical weather must not override the numeric cloud fraction');
  live.phasePacket={schema:1,product:'HymecNG',time:new Date(sampleTime).toISOString(),grid:{nx:2,ny:2,west:7,south:50,step:1,missing:255},classes:Buffer.from([0,7,6,255]).toString('base64')};
  assert.equal(vm.runInContext("const phaseGrid=decodeRadarPhase(phasePacket);radarPhaseAt(phaseGrid,[8,50],now).code",live),7);
  assert.equal(vm.runInContext("radarPhaseAt(phaseGrid,[8,51],now)",live),null);

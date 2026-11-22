@@ -73,7 +73,7 @@
   ["68_schneeregen_sturm","Schneeregen + Sturm",4,"",2,2,3,false,true,"",false]
  ];
  const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
- const cloud=(grade,centered)=>`<path class="wx-cloud" fill="var(--wx-cloud-${grade})" stroke="var(--wx-cloud-edge)" stroke-width="2.8" stroke-linejoin="round" transform="translate(0 ${centered?14:0})" d="M22 53C11 53 6 46 6 38C6 28 14 22 24 22C29 11 39 7 49 9C62 10 69 19 71 26C83 23 94 31 94 40C94 48 87 53 78 53Z"/>`;
+ const cloud=(grade,centered,compact=1)=>`<path class="wx-cloud" fill="var(--wx-cloud-${grade})" stroke="var(--wx-cloud-edge)" stroke-width="2.8" stroke-linejoin="round" transform="translate(0 ${centered?14:compact<1?24:0}) scale(${compact})" d="M22 53C11 53 6 46 6 38C6 28 14 22 24 22C29 11 39 7 49 9C62 10 69 19 71 26C83 23 94 31 94 40C94 48 87 53 78 53Z"/>`;
  function sun(small){
   const x=small?72:50,y=small?26:50,r=small?13:24,reach=small?23:40;
   return `<g fill="var(--wx-sun)" stroke="var(--wx-sun-edge)" stroke-width="2.2" stroke-linecap="round"><circle cx="${x}" cy="${y}" r="${r}"/><path fill="none" stroke="var(--wx-sun-ray)" stroke-width="${small?3.6:5}" d="${Array.from({length:8},(_,i)=>{const a=i*Math.PI/4;return 'M'+(x+(r+5)*Math.cos(a)).toFixed(1)+' '+(y+(r+5)*Math.sin(a)).toFixed(1)+'L'+(x+reach*Math.cos(a)).toFixed(1)+' '+(y+reach*Math.sin(a)).toFixed(1)}).join(' ')}"/></g>`;
@@ -105,7 +105,7 @@
  function artwork([key,label,grade,body,rain,flakes,rainGrade,thunder,wind,fog,ice]){
   const count=rain+flakes,centered=!body&&!count&&!thunder&&!wind&&!fog;
   let out=body==='sun'?sun(!!grade):body==='moon'?moon(!!grade):'';
-  if(grade)out+=cloud(grade,centered);
+  if(grade)out+=cloud(grade,centered,['02_heiter','08_nachts_leicht_bewoelkt'].includes(key)?.55:['03_leicht_bewoelkt','09_nachts_wolkig'].includes(key)?.78:1);
   if(fog){
    const paths=key==='66_gefrierender_nebel'?'M17 63H71 M24 74H68 M28 85H80':count?'M17 60H83 M27 70H73':fog;
    out+=`<path class="wx-fog" d="${paths}" fill="none" stroke="var(--wx-fog)" stroke-width="4.3" stroke-linecap="round"/>`;
