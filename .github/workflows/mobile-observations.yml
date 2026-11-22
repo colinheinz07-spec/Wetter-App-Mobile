@@ -5,7 +5,7 @@ on:
     - cron: '4,14,24,34,44,54 * * * *'
   push:
     branches: [main]
-    paths: ['scripts/ingest-observed-surface.py','scripts/ingest-radar-history.py','.github/workflows/mobile-observations.yml']
+    paths: ['scripts/ingest-observed-surface.py','scripts/ingest-radar-history.py','scripts/ingest-satellite-cloud.py','scripts/test-satellite-cloud.py','.github/workflows/mobile-observations.yml']
 permissions:
   contents: write
 jobs:
@@ -20,6 +20,9 @@ jobs:
           - branch: mobile-radar-history
             script: ingest-radar-history.py
             file: radar-history.json.gz
+          - branch: mobile-satellite-cloud
+            script: ingest-satellite-cloud.py
+            file: satellite-cloud.json.gz
     concurrency:
       group: ${{ matrix.branch }}
       cancel-in-progress: false
@@ -34,6 +37,10 @@ jobs:
         run: pip install h5py numpy pyproj
       - if: matrix.branch == 'mobile-observed-surface'
         run: pip install numpy scipy
+      - if: matrix.branch == 'mobile-satellite-cloud'
+        run: pip install numpy netCDF4
+      - if: matrix.branch == 'mobile-satellite-cloud'
+        run: python scripts/test-satellite-cloud.py
       - run: python scripts/${{ matrix.script }}
       - name: Publish validated independent snapshot
         env:

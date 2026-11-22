@@ -70,6 +70,9 @@ def decode(doc, now):
             }
             ph=phase(field('presentWeather'))
             if ph is not None:values['phase']=ph;values['strong']=int('HEAVY' in str(field('presentWeather')).upper())
+            # BUFR symbolic present weather, not past weather or nearby fog.
+            weather=str(field('presentWeather') or '').upper()
+            if 'FOG' in weather and not any(s in weather for s in ('PAST','HOUR','DISTANCE','VICINITY','NOT_AT','NOT AT','NO_FOG','NO FOG')):values['fog']=1
             v={k:v for k,v in values.items() if v is not None}
             if not v:continue
             key=(identity,time); row=rows.setdefault(key,dict(id=identity,name=str(field('stationOrSiteName') or identity).strip(),lon=round(lon,5),lat=round(lat,5),height=round(h,1),time=time,values={}))

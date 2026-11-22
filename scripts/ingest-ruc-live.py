@@ -75,6 +75,29 @@ def encode_field(name, a):
     return np.where(valid, np.rint(np.where(valid,a,0)*10), MISSING).astype('<i2')
 
 
+def build_analysis_map(out, lon, lat, fields, run, generated, grid=None):
+    """Nearest native analysis cell, never extrapolate beyond source coverage."""
+    from scipy.spatial import cKDTree
+    g = grid or dict(west=2,south=45,step=.02,nx=801,ny=601)
+    def xyz(x,y):
+        x,y=np.radians(x),np.radians(y)
+        return np.column_stack((np.cos(y)*np.cos(x),np.cos(y)*np.sin(x),np.sin(y)))
+    x,y=np.meshgrid(g['west']+np.arange(g['nx'])*g['step'],g['south']+np.arange(g['ny'])*g['step'])
+    distance,idx=cKDTree(xyz(lon,lat)).query(xyz(x.ravel(),y.ravel()),workers=2)
+    covered=distance*6371<=3.5
+    packed={}
+    for k in ('temp2','dew','wind','winddir','rh2'):
+        a=encode_field(k,fields[k][idx]);a[~covered]=MISSING
+        packed[k]=pack(a,'<i2')
+    if not all(np.any(np.frombuffer(base64.b64decode(v),dtype='<i2')!=MISSING) for v in packed.values()):
+        raise ValueError('Empty surface map field')
+    packet=dict(schema=1,product='ruc-surface-map',run=int(dt.datetime.fromisoformat(run).timestamp()),generated=int(dt.datetime.fromisoformat(generated).timestamp()),grid=dict(g,scale=.1,missing=MISSING),fields=packed)
+    with gzip.open(Path(out)/'analysis-map.json.gz','wt',compresslevel=5) as stream:
+        json.dump(packet,stream,separators=(',',':'))
+    print('Analysis map grid coverage:',round(100*covered.mean(),1),'%',flush=True)
+    return packet
+
+
 def build_snapshot(out, lon, lat, fields, run, generated, gust=None, terrain=None):
     out = Path(out); out.mkdir(parents=True, exist_ok=True)
     if not CORE <= fields.keys() or ('gust' in fields) != (gust is not None):
@@ -165,6 +188,7 @@ def main():
                     print('HSURF mismatch:',candidate,ti==identity,len(ta),float(np.mean(usable)),flush=True)
                 except (OSError,ValueError,RuntimeError) as e:print('HSURF unavailable:',candidate,e,flush=True)
             manifest=build_snapshot(args.output,lon,lat,fields,at.isoformat(),dt.datetime.now(UTC).isoformat(),gust,terrain)
+            build_analysis_map(args.output,lon,lat,fields,manifest['run'],manifest['generated'])
             i=np.argmin(((lon-10.2761)*np.cos(np.radians(47.4084)))**2+(lat-47.4084)**2)
             print('Oberstdorf native analysis',at.isoformat(),'temperature',round(float(fields['temp2'][i]),2),'model elevation',round(float(terrain[i])) if terrain is not None else 'unavailable',flush=True)
             print(f'Published {len(manifest["tiles"])} native tiles for {at.isoformat()}',flush=True); return

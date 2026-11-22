@@ -101,7 +101,7 @@ vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`
  assert.deepEqual(rgba(2),[240,0,199,224]); // north: hail 12 mm/h
  assert.deepEqual(rgba(3),[243,106,186,224]); // south: snow 1.2 mm/h
  assert.deepEqual(rgba(4),[8,121,223,224]); // south: rain
- assert.deepEqual(rgba(5),[130,150,156,224]); // unknown, not rain
+ assert.deepEqual(rgba(5),[12,145,142,224]); // unknown, distinct from rain and missing radar/cloud data
  assert.deepEqual(Array.from(new Uint8Array(r("radarWorkerPaint(f,'radar',ownRadarColors,RADAR_SOURCE_TOLERANCE_MS)"))),Array.from(rendered),'worker must match original renderer byte for byte');
  r('drawRealRadar(drawContext,{},new Date(f.time),()=>{},true)');
  assert.equal(draws,1);assert.equal(builds,1);

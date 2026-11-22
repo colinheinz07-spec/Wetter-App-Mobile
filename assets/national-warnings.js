@@ -3,12 +3,12 @@
 'use strict';
 const ROOT='https://raw.githubusercontent.com/colinheinz07-spec/Wetter-App/';
 const MOBILE_ROOT='https://raw.githubusercontent.com/colinheinz07-spec/Wetter-App-Mobile/';
-const TYPES={frost:'Luftfrost',wind:'Wind / Sturm',heat:'Hitze',fog:'Nebel',snow:'Schneefall',freezing:'Gefrierender Niederschlag',ice:'Glättegefahr',rain:'Starkregen',durationrain:'Dauerregen',storm:'Gewitter',stormwind:'Gewitterböen-Potenzial',stormrain:'Konvektiver Starkregen',hail:'Hagelpotenzial (SHIP)',rotation:'Rotationspotenzial (STP)'};
+const TYPES={frost:'Luftfrost',wind:'Wind / Sturm',heat:'Hitze',fog:'Nebel',fogpotential:'Nebelpotenzial',snow:'Schneefall',freezing:'Gefrierender Niederschlag',ice:'Glättegefahr',rain:'Starkregen',durationrain:'Dauerregen',storm:'Gewitter',stormwind:'Gewitterböen-Potenzial',stormrain:'Konvektiver Starkregen',hail:'Hagelpotenzial (SHIP)',rotation:'Rotationspotenzial (STP)'};
 const RADAR_ONLY={mixed:'Intensiver Mischniederschlag',precip:'Intensiver Niederschlag (Art unklar)'};
-const OPTIONAL=['stormwind','stormrain','hail','rotation','durationrain'];
+const OPTIONAL=['stormwind','stormrain','hail','rotation','durationrain','fogpotential'];
 const METRICS={frost:['°C',0,'Lufttemperatur'],heat:['°C',0,'Lufttemperatur'],wind:['km/h',0,'Böen'],stormwind:['km/h',0,'Böen'],fog:['m',0,'Sichtweite'],snow:['cm',0,'Neuschnee (geschätzt)'],rain:['l/m²',0,'Niederschlagssumme'],freezing:['l/m²',0,'Niederschlagssumme'],durationrain:['l/m²',0,'Niederschlagssumme'],stormrain:['l/m²',0,'Niederschlagssumme']};
 const ACCUMULATED=new Set(['snow','rain','freezing','durationrain','stormrain']);
-const HINT={storm:'Konvektionssignal bzw. CAPE, CIN, Scherung und Niederschlag.',stormwind:'Konvektionssignal zusammen mit modellierten Böen; kein gemessener Gewitterwind.',stormrain:'Konvektionssignal und modellierte 3-h-Niederschlagsmenge.',hail:'SHIP ≥ 1 bei Konvektionssignal; keine Vorhersage der Hagelgröße.',rotation:'STP ≥ 1 bei Konvektionssignal; keine Tornadovorhersage.'};
+const HINT={fogpotential:'Taupunkt nahe der Lufttemperatur, schwacher Wind; Nebel besonders in Mulden möglich. Keine bestätigte Sichtweite.',storm:'Konvektionssignal bzw. CAPE, CIN, Scherung und Niederschlag.',stormwind:'Konvektionssignal zusammen mit modellierten Böen; kein gemessener Gewitterwind.',stormrain:'Konvektionssignal und modellierte 3-h-Niederschlagsmenge.',hail:'SHIP ≥ 1 bei Konvektionssignal; keine Vorhersage der Hagelgröße.',rotation:'STP ≥ 1 bei Konvektionssignal; keine Tornadovorhersage.'};
 const OFFICIAL=['#f3cf35','#f58b25','#de343b','#8d247f'],OWN=['#edc844','#f18b26','#e13c49','#912b8f'];
 const ICON_NAMES={...TYPES,thaw:'Tauwetter',other:'Sonstige Warnung'};
 const GLYPHS={
@@ -29,7 +29,7 @@ const GLYPHS={
  other:'<path d="M12 3 22 21H2L12 3ZM12 9v5m0 3v.2"/>'
 };
 const ICON_COLOR={snow:'#0077c8',rain:'#006fbc',frost:'#056bba',freezing:'#006fbc',ice:'#14569a',heat:'#cf3f19',storm:'#865500',stormwind:'#865500',stormrain:'#865500',hail:'#8b3396',rotation:'#8b3396',thaw:'#006fbc'};
-function warningGlyph(kind){if(kind==='durationrain')kind='rain';return `<g color="${ICON_COLOR[kind]||'#263e55'}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${GLYPHS[kind]||GLYPHS.other}</g>`}
+function warningGlyph(kind){if(kind==='durationrain')kind='rain';if(kind==='fogpotential')kind='fog';return `<g color="${ICON_COLOR[kind]||'#263e55'}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${GLYPHS[kind]||GLYPHS.other}</g>`}
 function warningIcon(kind){return `<svg class="nw-icon" viewBox="0 0 24 24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">${warningGlyph(kind)}</svg>`}
 function officialKind(a){const e=String(a.event||a.headline||'').toLowerCase();if(/tauwetter/.test(e))return 'thaw';if(/glatteis|gefrier|eisregen/.test(e))return 'freezing';if(/schnee/.test(e))return 'snow';if(/glätte/.test(e))return 'ice';if(/frost/.test(e))return 'frost';if(/gewitter/.test(e))return 'storm';if(/hagel/.test(e))return 'hail';if(/wind|sturm|orkan/.test(e))return 'wind';if(/regen/.test(e))return 'rain';if(/nebel/.test(e))return 'fog';if(/hitze/.test(e))return 'heat';return 'other'}
 const fmt=t=>new Date(t*1000).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',timeZone:'Europe/Berlin'});
@@ -236,6 +236,20 @@ function observedFrost(collector){
   frostCache={key,markers,markup:contourMarkup(levels,g,.78)};
  }for(const m of frostCache.markers)collector.add('frost',m.level,m.p);return `<g clip-path="url(#nw-de-clip)">${frostCache.markup}</g>`;
 }
+function fogWindow(){return stage!=='upcoming'&&['all','now','0-6'].includes(windowId)}
+let fogCache=null;
+function currentFogRisk(){
+ const o=globalThis.WeatherObservation;if(!o?.mapField)return null;const f=['temp2','dew','rh2','wind'].map(k=>o.mapField(k));if(!f.every(x=>x?.kind==='analysis'&&x.time===f[0].time))return null;
+ if(fogCache?.time===f[0].time)return fogCache;
+ const g=f[0].grid,levels=new Uint8Array(g.nx*g.ny),markers=[];for(let i=0;i<levels.length;i++)if(o.fogPotential(f[0].values[i],f[1].values[i],f[2].values[i],f[3].values[i])){levels[i]=1;const x=i%g.nx,y=Math.floor(i/g.nx);if(x%8===0&&y%8===0){const p=[g.west+x*g.step,g.south+y*g.step];if(inGermany(p))markers.push(p)}}
+ fogCache={time:f[0].time,markers,markup:contourMarkup(levels,g,.55)};return fogCache;
+}
+function currentFogArea(collector){
+ const o=globalThis.WeatherObservation;if(!o)return '';
+ if(stage==='active'&&(filter==='all'||filter==='fog')){for(const r of o.fogStations?.()||[]){const p=[r.lon,r.lat];if(inGermany(p))collector.add('fog',r.values.visibility<150?2:1,p)}return '';}
+ if(stage==='risk'&&(filter==='all'||filter==='fogpotential')){const f=currentFogRisk();if(!f)return '';for(const p of f.markers)collector.add('fogpotential',1,p);return `<g clip-path="url(#nw-de-clip)">${f.markup}</g>`;}
+ return '';
+}
 function draw(){
  const geo=getGeometry(),dark=document.documentElement.dataset.theme!=='light';
  const t=now(),periods=modelPeriods(t),g=displayRisk(t)?.grid,ks=filter==='all'?Object.keys(TYPES):TYPES[filter]?[filter]:[],collector=markerCandidates();
@@ -245,6 +259,7 @@ function draw(){
  if(geo&&periods.length&&g&&ks.length)out+=modelArea(periods,g,ks,collector);
  if(geo&&currentRadarWindow()&&showRadar){const rows=radarRows();if(rows.length)out+=radarWarningArea(rows,collector,filter)}
  if(geo&&currentRadarWindow()&&(filter==='all'||filter==='frost'))out+=observedFrost(collector);
+ if(geo&&fogWindow())out+=currentFogArea(collector);
  if(geo)out+=`<g fill="none" stroke-linejoin="round" pointer-events="none"><path class="nw-districts" d="${geo.districtPaths}" stroke="${dark?'#9eb2c7':'#475b70'}" stroke-opacity=".48" stroke-width=".45" vector-effect="non-scaling-stroke"/><path d="${geo.states}" stroke="${dark?'#a1b1c2':'#748392'}" stroke-opacity=".8" stroke-width=".9" vector-effect="non-scaling-stroke"/><path d="${geo.outline}" stroke="${dark?'#d3dce7':'#48586a'}" stroke-width="1.6" vector-effect="non-scaling-stroke"/></g><g class="nw-cities" fill="${dark?'#f3f8ff':'#253444'}" font-size="15" font-family="system-ui,sans-serif" stroke="${dark?'#213347':'#fff'}" stroke-width="2.5" paint-order="stroke">${cityMarkup(globalThis.WEATHER_BASEMAP?.places,viewport)}</g>`;
  out+=selectMarkers(collector).map(markerMarkup).join('');
  out+=storms(t).map(c=>stormMarkup(c,t)).join('');
@@ -266,6 +281,7 @@ function render(){
  $('#nw-explain').textContent=stage==='active'?'Laufende und sehr wahrscheinliche Gefahren mit Beginn innerhalb der nächsten 24 Stunden. Modellwarnungen sind Prognosen; beobachtete Radar-Gefahren und Gewitterzellen werden separat angezeigt.':stage==='upcoming'?'Watch: mögliche größere Wetterereignisse mit Beginn in 24–96 Stunden. Lage, Intensität und Zeitpunkt können sich noch verändern.':'Unsichere Gefahren innerhalb der nächsten 24 Stunden (z. B. einzelne Modellsignale oder konvektive Zutaten).';
  $('#nw-sources').textContent=stage==='active'?(sf?'Radar-Analyse: '+fmt(stormData.observed)+(stormData.missingRadarSites?.length?' · Abdeckung eingeschränkt':''):errorStorm?'Keine frische Zellanalyse verfügbar. Keine Entwarnung.':'Zellanalyse wird geladen …')+(r?' · Modellwarnungen '+fmt(r.generated):' · Modellwarnungen nicht verfügbar')+(globalThis.WeatherObservation?.gridField('temp2')?' · SYNOP-Frostflächen (Beobachtungsanalyse)':' · Keine frische SYNOP-Fläche')+(showRadar?' · '+(radarRows().length?'Eigene Radarintensitäts-Gebiete':'Keine frischen numerischen Radardaten'):''):(r?'Modellanalyse '+fmt(r.generated)+' · '+r.grid.step+'° Warnraster · Modellauflösung: '+r.models.map(m=>m.model+' '+m.step+'°').join(', ')+' · Grau: fehlende Modellwerte':(stage==='upcoming'?errorWatch:errorR)?'Modellanalyse momentan nicht verfügbar. Keine Entwarnung.':'Modellanalyse wird geladen …');
  const available=new Set();for(const p of modelPeriods(t))for(const k in TYPES)if(!available.has(k)&&p.decoded[k]?.some((c,i)=>stageMatches(c,stage)&&germanCell(r.grid,i)))available.add(k);if(currentRadarWindow()){if(globalThis.WeatherObservation?.gridField('temp2')?.values.some(v=>v<0))available.add('frost');for(const c of stormFresh(stormData,t)?stormData.cells:[])if(inGermany(c.point)||c.path.some(p=>inGermany(p.point)))for(const k of stormKinds(c))available.add(k);const rows=showRadar?radarRows():[];if(rows.length){radarWarningArea(rows,markerCandidates());for(const m of activeRadarGeometry.markers)available.add(m.kind)}}
+ if(fogWindow()){if(stage==='active'&&globalThis.WeatherObservation?.fogStations?.().some(r=>inGermany([r.lon,r.lat])))available.add('fog');if(stage==='risk'&&currentFogRisk()?.markers.length)available.add('fogpotential');}
  if(filter!=='all'&&!available.has(filter))filter='all';
  const tiles=$('#nw-type-tiles');tiles.innerHTML=[['all','Alle'],...Object.entries({...TYPES,...RADAR_ONLY}).filter(([k])=>available.has(k))].map(([k,v])=>`<button type="button" data-nw-kind="${k}" aria-pressed="${filter===k}">${k==='all'?'<span class="nw-all-icon">▦</span>':warningIcon(k)}<span>${esc(v)}</span></button>`).join('');
  const signals=selectedModels(t),cells=storms(t),selected=cells.find(c=>c.id===selectedStorm),hits=point?cells.map(c=>({c,hit:stormHit(c,point,t)})).filter(x=>x.hit):[];
@@ -277,7 +293,7 @@ function render(){
   const cellText=(selected?stormDetail(selected,t,hits.find(h=>h.c.id===selected.id)?.hit):'')+hits.filter(h=>h.c!==selected).map(h=>stormDetail(h.c,t,h.hit)).join('');
   const sample=currentRadarWindow()&&point&&showRadar?radarSampleAt(radarRows(),point):{rate:NaN,time:NaN},rate=sample.rate,kind=radarKind(radarPhaseCode(radarPhaseContext(),point,sample.time));
   const radarText=Number.isFinite(rate)&&rate>=15&&(filter==='all'||filter===kind)?`<p><b>Radar-Gefahrenhinweis · ${esc(({...TYPES,...RADAR_ONLY})[kind])}</b><br>${stormNumber(rate,'mm/h')} Wasseräquivalent · momentane Radarrate, keine gemessene Niederschlagsmenge oder Schneehöhe.</p>`:'';
-  const frostValue=currentRadarWindow()&&point&&(filter==='all'||filter==='frost')?globalThis.WeatherObservation?.gridValue('temp2',point):NaN;const frostText=frostValue<0?'<p><b>Aktueller Luftfrost · DWD SYNOP</b><br>'+stormNumber(frostValue,'°C')+' · räumliche Beobachtungsanalyse, keine Prognose.</p>':'';detail.innerHTML=heading+frostText+modelText+cellText+radarText+(!modelText&&!cellText&&!radarText&&!frostText?'<p>Keine angezeigte Gefahr an diesem Punkt. Das ist keine Entwarnung.</p>':'');
+  const frostValue=currentRadarWindow()&&point&&(filter==='all'||filter==='frost')?globalThis.WeatherObservation?.gridValue('temp2',point):NaN;const frostText=frostValue<0?'<p><b>Aktueller Luftfrost · DWD SYNOP</b><br>'+stormNumber(frostValue,'°C')+' · räumliche Beobachtungsanalyse, keine Prognose.</p>':'';const fog=fogWindow()&&point?globalThis.WeatherObservation?.fogAt?.(point,NaN):null, fogText=fog&&(stage==='active'&&fog.state==='observed'&&(filter==='all'||filter==='fog')||stage==='risk'&&fog.state==='risk'&&(filter==='all'||filter==='fogpotential'))?'<p><b>'+(fog.state==='observed'?'Aktuelle Nebelbeobachtung':'Aktuelles Nebelpotenzial')+'</b><br>'+esc(fog.source)+(Number.isFinite(fog.visibility)?' · '+stormNumber(fog.visibility,'m'):'')+'</p>':'';detail.innerHTML=heading+frostText+fogText+modelText+cellText+radarText+(!modelText&&!cellText&&!radarText&&!frostText&&!fogText?'<p>Keine angezeigte Gefahr an diesem Punkt. Das ist keine Entwarnung.</p>':'');
  }else{popup.hidden=true;detail.innerHTML=''}
  try{draw()}catch(e){canvas.innerHTML='';console.warn('Warnkarte: lokale Grundkarte bleibt sichtbar',e);$('#nw-sources').textContent+=' · Kartenebene konnte nicht dargestellt werden.'}
 }

@@ -51,6 +51,7 @@ const server=http.createServer((req,res)=>{
     if(h)return json({schema:2,run,generated:run,hour:+h,field:k,values:fieldValue(k,+h)});
    }
    if(p.endsWith('/opera-radar.json.gz'))return json(operaPacket);
+   if(p.endsWith('/satellite-cloud.json.gz'))return json({schema:1,product:'DWD-METEOSAT-CTH',time:Date.parse(scan)/1000,generated:Date.parse(scan)/1000,grid:{west:8,south:48,step:.03,nx:2,ny:2},cloud:Buffer.from([100,100,100,100]).toString('base64')});
    if(p.endsWith('/radar-phase.json.gz'))return groundFallback?route.fulfill({status:404,headers:{'access-control-allow-origin':'*'}}):json({schema:1,product:'HymecNG',time:scan,grid:{west:8,south:48,step:6,nx:2,ny:2,missing:255},classes:Buffer.from([7,7,7,7]).toString('base64')});
    if(u.hostname==='api.brightsky.dev'&&p==='/weather')return json({weather:[{timestamp:analysisRun,source_id:1,condition:groundFallback?'snow':'rain'}],sources:[{id:1,observation_type:groundFallback?'current':'forecast',wmo_station_id:'10384',station_name:'Berlin',lat:52.52,lon:13.405,height:35}]});
    if(u.hostname==='opendata.dwd.de')return route.fulfill({headers:{'access-control-allow-origin':'*'},body:'<a href="composite_rv_20261119_1820.tar">Radar</a>'});
@@ -130,6 +131,11 @@ const server=http.createServer((req,res)=>{
   await page.waitForFunction(()=>document.querySelector('#map-data-notice').textContent==='Beobachtung');
   await page.locator('[data-full-layer="satellite"]').click();
   await page.waitForFunction(()=>document.querySelector('#map-data-notice').textContent==='Beobachtung');
+  await page.waitForFunction(()=>WeatherObservation.cloudField()&&document.querySelector('#map-valid').textContent.includes('Radar:')&&!document.querySelector('#map-valid').textContent.includes('Radar: keine Daten'));
+  assert.match(await page.locator('#map-layer-title').innerText(),/Satellitenwolken \+ Niederschlagsradar/);
+  assert.match(await page.locator('#radar-type-legend').innerText(),/Art unbekannt/);
+  const overlay=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=c.height=80;const ctx=c.getContext('2d'),b={west:8,east:8.03,south:48,north:48.03,w:80,h:80};drawLiveBase(ctx,b);drawObservedField(ctx,b,'cloud');const before=[...ctx.getImageData(40,40,1,1).data];drawRealLiveField(ctx,b,true);const after=[...ctx.getImageData(40,40,1,1).data];return {before,after}});
+  assert.notDeepEqual(overlay.after,overlay.before,'satellite must composite the real radar over the cloud mask');
   await page.locator('[data-full-layer="doppler"]').click();
   await page.waitForFunction(()=>document.querySelector('#map-layer-title').textContent.includes('Doppler')&&document.querySelector('#map-data-notice').textContent==='Beobachtung');
   assert.match(await page.locator('#map-interval').innerText(),/kein Tornadonachweis/);

@@ -32,4 +32,9 @@ with tempfile.TemporaryDirectory() as out:
     assert v1[l1.index(799500)]==-10 and v2[l2.index(800500)]==30
     assert t1['run']==run and t2['generated']==gen
     assert manifest['terrainScale']==1 and np.frombuffer(base64.b64decode(t1['terrain']),dtype='<i2')[l1.index(799500)]==800
+    g=dict(west=8,south=50.5,step=.02,nx=8,ny=2)
+    packet=m['build_analysis_map'](out,lon,lat,fields,run,gen,g)
+    v=np.frombuffer(base64.b64decode(packet['fields']['temp2']),dtype='<i2')
+    assert v[0] in [-10,30] and v[1]==30 and v[-1]==-32768
+    assert packet['run']<packet['generated']
 print('PASS: native source cells, border halo, genuine zero, missing values, units and completed gust interval')

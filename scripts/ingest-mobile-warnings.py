@@ -15,9 +15,9 @@ import numpy as np
 ROOT='https://raw.githubusercontent.com/colinheinz07-spec/Wetter-App/generated-native-'
 GRID=dict(west=5.5,south=47.,step=.02,nx=481,ny=411)
 MODELS=(('ICON-D2','icon-d2-de',18),('ICON-EU','icon-eu-de',24),('IFS','ifs-de',24),('GFS','gfs-de',24))
-FIELDS=('temp2','gust','visibility','ww','ptype','rainTotal','convTotal','tground','rh2','mlcape','mucape','mlcin','s06','orog','ship','stp','snowWaterTotal','snowGspTotal','snowConTotal')
-TYPES=('frost','wind','heat','fog','snow','freezing','ice','rain','durationrain','storm','stormwind','stormrain','hail','rotation')
-POTENTIAL={'ice','stormwind','stormrain','hail','rotation'}
+FIELDS=('temp2','dew','wind','gust','visibility','ww','ptype','rainTotal','convTotal','tground','rh2','mlcape','mucape','mlcin','s06','orog','ship','stp','snowWaterTotal','snowGspTotal','snowConTotal')
+TYPES=('frost','wind','heat','fog','fogpotential','snow','freezing','ice','rain','durationrain','storm','stormwind','stormrain','hail','rotation')
+POTENTIAL={'ice','fogpotential','stormwind','stormrain','hail','rotation'}
 N=GRID['nx']*GRID['ny']
 
 def timestamp(s):return int(dt.datetime.fromisoformat(s.replace('Z','+00:00')).timestamp())
@@ -165,8 +165,12 @@ def analyze(fields,end):
     snow_signal=np.isin(ww,[70,71,72,73,74,75,77,85,86])|(np.isin(pt,[5,6])&wet)|(snow_cm>=.1)
     snow_levels=categorical(phase_known|np.isfinite(snow_cm),snow_signal)
     for level,threshold in enumerate((5,10,20),2):snow_levels[snow_signal&(snow_cm>=threshold)]=level
+    dew=val('dew');meanwind=val('wind');spread=t-dew
+    fog_known=np.isfinite(t)&np.isfinite(dew)&np.isfinite(meanwind)
+    fog_signal=(spread>=-.5)&(spread<=1)&(meanwind>=0)&(meanwind<=12)&(~np.isfinite(rh)|(rh>=94))&~(np.isfinite(v)&(v>=0)&(v<=.25))
     return dict(frost=frost,wind=wind,heat=heat,
                 fog=levels(np.where(v>=0,-v,np.nan),[-.25,-.05]),
+                fogpotential=categorical(fog_known,fog_signal),
                 snow=snow_levels,freezing=categorical(phase_known,freeze),
                 ice=categorical((causes>0)|(np.isfinite(ground)&(np.isfinite(precip)|np.isfinite(rh))),causes>0),
                 rain=np.where(np.isfinite(rain),np.maximum(levels(rain,[20,35,55,80]),np.where(np.isfinite(hour_peak),levels(hour_peak,[15,25,40,60]),0)),255).astype(np.uint8),durationrain=levels(sustained,[25,40,60,90]),storm=storm,stormwind=conv_gust,stormrain=conv_rain,
