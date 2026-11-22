@@ -1,49 +1,37 @@
 'use strict';
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const source=fs.readFileSync('assets/app.js','utf8'),chunk=(a,b)=>source.slice(source.indexOf(a),source.indexOf(b));
-const now=Date.parse('2026-11-22T10:45:00Z'),point=[7.84,50.55],station=[7.85,50.65];
-const ctx=vm.createContext({now,point,station,Map,Math,Number,Date,URLSearchParams,AbortSignal,atob,console,
-  pointKey:p=>p?.join(',')||'',warningElevation:()=>450,localFormat:v=>String(v),localTime:v=>new Date(v).toISOString().slice(11,16),
-  frameVal:(f,id)=>f?.point===station?f?.atStation?.[id]??NaN:f?.values?.[id]??NaN,frameHumidity:f=>f?.values?.rh2??NaN,
-  stationData:null,location:{},homeLocationPoint:()=>point,refreshLiveHero:()=>{},pointRead:()=>Promise.resolve(null)});
+const now=Date.parse('2026-11-22T10:45:00Z'),point=[7.84,50.55],other=[7.88,50.55];
+const pack=(arr,width)=>{const b=Buffer.alloc(arr.length*width);arr.forEach((v,i)=>width===4?b.writeInt32LE(v,i*4):b.writeInt16LE(v,i*2));return b.toString('base64')};
+const run='2026-11-22T10:00:00Z',generated='2026-11-22T10:40:00Z',fields=['temp2','dew','wind','winddir','rh2','slp','cloud','gust'];
+const manifest={schema:1,product:'ruc-surface-analysis',model:'ICON-D2-RUC',gridMapping:'native-triangular-cells',coordScale:.00001,scale:.1,tileStep:1,missing:-32768,run,generated,tiles:['7_50'],fields,gust:{run,valid:run,intervalMinutes:0}};
+const tile={schema:1,key:'7_50',run,generated,count:2,lon:pack([784000,788000],4),lat:pack([5055000,5055000],4),values:Object.fromEntries(fields.map(k=>[k,pack(k==='temp2'?[-12,39]:k==='wind'?[0,100]:k==='gust'?[192,327]:k==='slp'?[10130,10140]:[50,60],2)]))};
+const ctx=vm.createContext({now,point,other,manifest,tile,Map,Math,Number,Date,atob,console,
+ pointKey:p=>p?.join(',')||'',localTime:v=>new Date(v).toISOString().slice(11,16),frameVal:(f,id)=>f?.values?.[id]??NaN,frameHumidity:f=>f?.values?.rh2??NaN,
+ stationData:{stations:[{temp:99,lon:point[0],lat:point[1]}]},location:{},homeLocationPoint:()=>point,refreshLiveHero:()=>{},pointRead:()=>Promise.resolve(null)});
 const ev=s=>vm.runInContext(s,ctx);
-ev(chunk('const liveObservations=','let radarPhaseData='));
-ev(`const raw={sources:[{id:1,observation_type:'synop',lon:station[0],lat:station[1],height:475,station_name:'Station A'},{id:2,observation_type:'forecast',lon:point[0],lat:point[1],height:450}],weather:[
- {source_id:1,timestamp:new Date(now-10*60000).toISOString(),temperature:-1.2,wind_speed_10:0,wind_gust_speed_10:15.1,dew_point:-2},
- {source_id:1,timestamp:new Date(now-5*60000).toISOString(),temperature:null,wind_speed_10:null,wind_gust_speed_10:null},
- {source_id:1,timestamp:new Date(now+60000).toISOString(),temperature:12,wind_gust_speed_10:90},
- {source_id:1,timestamp:new Date(now-60*60000).toISOString(),temperature:40},
- {source_id:2,timestamp:new Date(now-60000).toISOString(),temperature:20},
- {source_id:1,timestamp:new Date(now-60000).toISOString(),temperature:20,fallback_source_ids:{temperature:2}}]};
- const rows=decodeLiveObservations(raw,point,now);liveObservations.set(pointKey(point),rows);
- const frame={time:now-45*60000,d:{model:'ICON-D2',hours:[0,1]},hour:0,point,values:{temp2:3,wind:12,gust:48,dew:1},atStation:{temp2:4,wind:14,dew:2}};
- // A complete raster supplies both cells at the same validity time.
- stationModelValue=(f,s,id)=>f.atStation[id];`);
-assert.equal(ev('rows.length'),4);
-assert.equal(ev('liveObservationAt("wind",point,now).value'),0,'zero is a real measurement');
-assert.equal(ev('liveSample("temp2",frame,point,now).kind'),'analysis');
-assert.ok(Math.abs(ev('liveSample("temp2",frame,point,now).value')+2.2)<1e-8,'actual observation plus same-frame spatial difference');
-assert.equal(ev('liveSample("gust",frame,point,now).value'),15.1,'observed gust, not model interval gust');
-assert.equal(ev('liveSample("gust",frame,point,now).kind'),'station');
-assert.match(ev('liveSample("gust",frame,point,now).source'),/Station A.*10:35.*Max. 10 min/);
-assert.equal(ev('liveSample("temp2",{...frame,time:now+10*60000},point,now).kind'),'station','future model frame rejected');
-assert.equal(ev('liveSample("temp2",frame,point,now+36*60000).kind'),'model','expired observations cannot remain live');
-assert.equal(ev('liveSample("temp2",frame,point,now+100*60000).kind'),'missing','stale model also rejected');
-assert.equal(ev('liveSample("gust",frame,[8.1,50.6],now).value'),48,'location-specific measurement never leaks to another town');
-assert.equal(ev('liveSample("gust",frame,[8.1,50.6],now).kind'),'model');
-ev('stationModelValue=()=>NaN');assert.equal(ev('liveSample("temp2",frame,point,now).kind'),'model');
-assert.equal(ev('liveSample("temp2",frame,point,now).obs.value'),-1.2,'reference measurement is retained when spatial correction impossible');
-// Exercise actual packed-tile lookup (not a mocked station-model difference).
-const tileCtx=vm.createContext({Map,Math,Number,Date,atob,pointRead:()=>Promise.resolve(null),refreshLiveHero:()=>{}});
-const tileEval=s=>vm.runInContext(s,tileCtx);
-tileEval(source.match(/function packedCell\(packed,n\)\{[^\n]+/)[0]);
-tileEval(source.match(/function pointCell\(m,p\)\{[^\n]+/)[0]);
-tileEval(chunk('const liveObservations=','let radarPhaseData='));
-const pack=arr=>{const b=Buffer.alloc(arr.length*2);arr.forEach((n,i)=>b.writeInt16LE(n,2*i));return b.toString('base64')};
-tileCtx.packed=pack([10,40,50,60]);
-tileEval(`const grid={west:7,south:50,step:.1,nx:2,ny:2,missing:-32768,scale:.1},m={schema:3,model:'ICON-D2',run:'r',generated:'g',hours:[0,1],grid,tileSize:8,scales:{temp2:.1,wind:.1,dew:.1}};
- const c=pointCell(m,[7,50]),f={temp2:packed,wind:packed,dew:packed},t={schema:3,run:'r',generated:'g',key:c.key,frames:{0:f,1:f}};
- rememberLiveTile(m,t,c,'test/');const actual={d:{...m,pointLocation:[7,50]},hour:0};`);
-assert.equal(tileEval('stationModelValue(actual,{point:[7.1,50]},"temp2")'),4);
-assert.equal(tileEval('stationModelValue({...actual,d:{...actual.d,generated:"wrong"}},{point:[7.1,50]},"temp2")'),NaN,'no cross-run tile reuse');
-console.log('PASS: raw observed temperature, calm wind, gust time/interval, spatial analysis, source separation, future/stale rejection and location switch.');
+ev(source.match(/function packedCell\(packed,n\)\{[^\n]+/)[0]);
+ev(chunk('const liveAnalysisRoot=','let radarPhaseData='));
+ev(`const m=validateLiveAnalysis(manifest,now),sample=decodeLiveTile(m,tile,point),sampleOther=decodeLiveTile(m,tile,other);
+ liveAnalysisCache.set(pointKey(point),sample);liveAnalysisCache.set(pointKey(other),sampleOther);
+ const frame={time:now-45*60000,d:{model:'ICON-D2'},values:{temp2:10,wind:12,gust:48}};`);
+assert.ok(ev('m&&sample&&sampleOther'));
+assert.ok(Math.abs(ev('liveSample("temp2",frame,point,now).value')+1.2)<1e-8);
+assert.ok(Math.abs(ev('liveSample("temp2",frame,other,now).value')-3.9)<1e-8,'two different native source cells');
+assert.equal(ev('liveSample("wind",frame,point,now).value'),0,'zero wind is valid');
+assert.equal(ev('liveSample("gust",frame,point,now).kind'),'analysis');
+assert.match(ev('liveSample("gust",frame,point,now).source'),/diagnostizierte Böe/);
+assert.equal(ev('decodeLiveTile(m,tile,[7.4,50.55])'),null,'far cell must not replace the location');
+assert.equal(ev('decodeLiveTile(m,{...tile,run:"wrong"},point)'),null,'mixed run forbidden');
+assert.equal(ev('decodeLiveTile(m,{...tile,values:{...tile.values,temp2:"bad"}},point)'),null);
+assert.equal(ev('validateLiveAnalysis({...manifest,run:new Date(now+60000).toISOString()},now)'),null,'future analysis rejected');
+assert.equal(ev('validateLiveAnalysis({...manifest,gust:{run:manifest.run,valid:manifest.run,intervalMinutes:60}},now)'),null,'inconsistent gust interval');
+assert.equal(ev('validateLiveAnalysis(manifest,now+46*60000)'),null,'stale analysis rejected');
+assert.equal(ev('liveSample("temp2",frame,point,now+46*60000).kind'),'missing','stale fallback rejected as well');
+assert.equal(ev('liveSample("temp2",{...frame,time:now+60000},[9,50],now).kind'),'missing','future forecast rejected');
+assert.equal(ev('liveSample("temp2",frame,[9,50],now).kind'),'model','no unrelated cached location or station');
+assert.equal(ev('liveSample("temp2",frame,[9,50],now).value'),10);
+ev('sample.gust={run:"2026-11-22T09:00:00Z",valid:m.run,intervalMinutes:60}');
+assert.equal(ev('liveSample("gust",frame,point,now).kind'),'interval');
+assert.match(ev('liveSample("gust",frame,point,now).source'),/letzte Stunde/);
+console.log('PASS: native point selection, two distinct local values, no station substitution, missing/future/stale rejection, gust semantics and forecast independence.');

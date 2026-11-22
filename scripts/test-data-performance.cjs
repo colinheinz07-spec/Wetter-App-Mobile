@@ -29,18 +29,19 @@ const server=http.createServer((req,res)=>{
  try{
   const page=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1});
   await page.clock.setFixedTime(fixed);const errors=[],requests=[];
-  let releaseObservations;const observationGate=new Promise(resolve=>releaseObservations=resolve);
-  let testStation;
+  let releaseAnalysis;const analysisGate=new Promise(resolve=>releaseAnalysis=resolve);
+  const analysisRun='2026-11-19T18:00:00Z',analysisFields=['temp2','dew','wind','winddir','gust','rh2','slp','cloud'];
+  const analysisManifest={schema:1,product:'ruc-surface-analysis',model:'ICON-D2-RUC',gridMapping:'native-triangular-cells',coordScale:.00001,scale:.1,tileStep:1,missing:-32768,run:analysisRun,generated:scan,fields:analysisFields,tiles:['13_52'],gust:{run:analysisRun,valid:analysisRun,intervalMinutes:0}};
+  const coord=n=>{const b=Buffer.alloc(4);b.writeInt32LE(n);return b.toString('base64')},n16=n=>{const b=Buffer.alloc(2);b.writeInt16LE(n);return b.toString('base64')};
+  const analysisValues={temp2:-12,dew:-20,wind:80,winddir:900,gust:192,rh2:900,slp:10120,cloud:850};
   page.on('pageerror',e=>errors.push(e.message));
   await page.route('**/*',route=>{
    const u=new URL(route.request().url()),p=u.pathname;
    if(u.origin===url)return route.continue();
    requests.push(u.href);
    const json=data=>route.fulfill({headers:{'access-control-allow-origin':'*'},json:data});
-   if(u.hostname==='api.brightsky.dev'&&p==='/sources'){
-    testStation={id:123,observation_type:'synop',lon:+u.searchParams.get('lon'),lat:+u.searchParams.get('lat'),height:40,station_name:'Testmessstation',last_record:scan};return json({sources:[testStation]});
-   }
-   if(u.hostname==='api.brightsky.dev'&&p==='/synop')return observationGate.then(()=>json({sources:[testStation],weather:[{source_id:123,timestamp:scan,temperature:-1.2,wind_speed_10:8,wind_gust_speed_10:19.2,relative_humidity:90}]}));
+   if(p.endsWith('/generated-live-ruc/index.json'))return json(analysisManifest);
+   if(p.endsWith('/generated-live-ruc/tile-13_52.json.gz'))return analysisGate.then(()=>json({schema:1,key:'13_52',run:analysisRun,generated:scan,count:1,lon:coord(1340500),lat:coord(5252000),values:Object.fromEntries(analysisFields.map(k=>[k,n16(analysisValues[k])]))}));
    const native=p.match(/generated-native-([^/]+)\/(index\.json|point-index\.json|point-0-0\.json\.gz|(\d+)-(\w+)\.json\.gz)$/);
    const point=p.match(/generated-points-([^/]+)\/(?:anchor\/)?(point-index\.json|point-0-0\.json\.gz)$/);
    if(native||point){
@@ -61,10 +62,11 @@ const server=http.createServer((req,res)=>{
   });
   await page.goto(url+'/index.html');
   await page.waitForFunction(()=>document.querySelector('.hero .temp')?.textContent.includes('10'));
-  releaseObservations();
+  releaseAnalysis();
   await page.waitForFunction(()=>document.querySelector('.hero .temp')?.textContent.startsWith('-1'));
-  assert.match(await page.locator('.hero .metrics').innerText(),/Böen · Messstation[\s\S]*19,2[\s\S]*Max. 10 min/);
-  assert.match(await page.locator('.hero .live-temp-source').innerText(),/Testmessstation/);
+  assert.match(await page.locator('.hero .metrics').innerText(),/Böen · Ortsanalyse[\s\S]*19,2[\s\S]*diagnostizierte Böe/);
+  assert.match(await page.locator('.hero .live-temp-source').innerText(),/ICON-D2-RUC.*Originalzelle/);
+  assert.ok(!requests.some(s=>/api\.brightsky\.dev\/(sources|synop)/.test(s)),'must never query a nearby station');
   assert.ok((await page.locator('.hour-scroll .hour strong').allTextContents()).includes('10°'),'hourly forecast must remain the original model forecast');
   await page.locator('[data-page="expert"]').click();
   await page.waitForFunction(()=>document.querySelector('[data-expert-availability="ICON-D2"]')?.textContent.includes('Originalraster verfügbar'));

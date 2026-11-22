@@ -19,7 +19,7 @@ Schlankes App-Projekt für die Entwicklung in **SPCK**. Hier liegt **nur der Wet
 ## Funktionen
 
 - Aktuelle ortsbezogene Wetterwerte und Stundenverlauf
-  - Live-Wetter: unabhängige DWD-SYNOP-Messungen via Bright Sky (Temperatur, Windmittel, 10-Minuten-Böenmaximum). Messort, Entfernung und Messzeit werden angezeigt. Eine Ortsanalyse nutzt nur räumliche Unterschiede desselben Modelllaufs bei geeigneter Stationsnähe und Höhenlage; sie ist keine direkte Messung am ausgewählten Ort. Fehlende oder veraltete Beobachtungen werden nicht als Messwerte ausgegeben. Die Stunden- und Tagesvorhersagen bleiben davon unabhängig.
+  - Live-Wetter: jüngster DWD ICON-D2-RUC Anfangszustand (Analysezeit), direkt aus der nächsten nativen dreieckigen 2,2-km-Gitterzelle der Ortskoordinaten. Kein Ersatz durch Messstationen. Böen sind diagnostizierte Modellwerte zum Analysezeitpunkt beziehungsweise ein gekennzeichnetes abgeschlossenes Modellintervall. Fehlende oder veraltete Analysen werden ausdrücklich durch gekennzeichnete örtliche Modellwerte ersetzt, sofern zeitnah verfügbar. Die Stunden- und Tagesvorhersagen bleiben unabhängig.
 - 7-Tage-Prognosen und Warnungen
 - Wettermodellkarten, Radar und Expertenbereich
 - Straßenwetter (amtliche DWD-SWSMOS-Prognosen von nahegelegenen Stationen)
