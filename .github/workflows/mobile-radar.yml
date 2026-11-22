@@ -1,0 +1,78 @@
+name: Mobile independent live radar and surface phase
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '1,6,11,16,21,26,31,36,41,46,51,56 * * * *'
+  push:
+    branches: [main]
+    paths: ['scripts/ingest-radar-phase.py','scripts/ingest-radar-points.py','scripts/ingest-opera-radar.py','scripts/ingest-swiss-radar.py','.github/workflows/mobile-radar.yml']
+permissions:
+  contents: write
+jobs:
+  radar:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - kind: phase
+            script: ingest-radar-phase.py
+            file: radar-phase.json.gz
+          - kind: ry
+            script: ingest-radar-points.py
+            file: radar-points.json.gz
+          - kind: opera
+            script: ingest-opera-radar.py
+            file: opera-radar.json.gz
+          - kind: swiss
+            script: ingest-swiss-radar.py
+            file: swiss-radar.json.gz
+    concurrency:
+      group: mobile-radar-${{ matrix.kind }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install h5py numpy pyproj
+      - run: mkdir -p data && python scripts/${{ matrix.script }}
+      - name: Validate packet and check Oberstdorf
+        env:
+          PACKET: data/${{ matrix.file }}
+        run: |
+          python - <<'PY'
+          import base64, datetime, gzip, json, os, struct
+          with gzip.open(os.environ['PACKET'],'rt') as f: d=json.load(f)
+          g=d['grid']; t=datetime.datetime.fromisoformat(d['time'])
+          age=(datetime.datetime.now(datetime.timezone.utc)-t).total_seconds()
+          assert 0<=age<=1200, (t,age)
+          n=g['ny']*g['nx']; i=round((47.4084-g['south'])/g['step'])*g['nx']+round((10.2761-g['west'])/g['step'])
+          if 'classes' in d:
+              raw=base64.b64decode(d['classes']); assert len(raw)==n
+              print('Oberstdorf surface phase',raw[i], 'scan',d['time'])
+          else:
+              raw=base64.b64decode(d['amount']); assert len(raw)==n*2
+              print('Oberstdorf raw radar',struct.unpack_from('<h',raw,i*2)[0], 'scan',d['time'])
+          PY
+      - name: Publish independent validated snapshot
+        env:
+          PACKET: ${{ matrix.file }}
+          KIND: ${{ matrix.kind }}
+        run: |
+          git config user.name 'Wetter Mobile Data'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          ref="refs/heads/mobile-radar-$KIND"
+          subject="Generated mobile radar $KIND snapshot"
+          previous=$(git ls-remote --heads origin "$ref" | cut -f1)
+          if test -n "$previous"; then
+            git fetch --depth=1 origin "$previous"
+            test "$(git ls-tree -r --name-only "$previous")" = "$PACKET"
+            test "$(git log -1 --format=%s "$previous")" = "$subject"
+          fi
+          blob=$(git hash-object -w "data/$PACKET")
+          if test -n "$previous" && test "$(git rev-parse "$previous:$PACKET")" = "$blob"; then exit 0; fi
+          tree=$(printf '100644 blob %s\t%s\n' "$blob" "$PACKET" | git mktree)
+          commit=$(git commit-tree "$tree" -m "$subject")
+          git push --force-with-lease="$ref:$previous" origin "$commit:$ref"
