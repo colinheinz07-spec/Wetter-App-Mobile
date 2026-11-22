@@ -16,8 +16,8 @@ ROOT='https://raw.githubusercontent.com/colinheinz07-spec/Wetter-App/generated-n
 GRID=dict(west=5.5,south=47.,step=.02,nx=481,ny=411)
 MODELS=(('ICON-D2','icon-d2-de',18),('IFS','ifs-de',24),('GFS','gfs-de',24))
 FIELDS=('temp2','gust','visibility','ww','ptype','rainTotal','tground','rh2','mlcape','mucape','mlcin','s06','orog','ship','stp')
-TYPES=('frost','wind','heat','fog','snow','freezing','ice','rain','storm','stormwind','stormrain','hail','rotation')
-POTENTIAL={'storm','ice','freezing','stormwind','stormrain','hail','rotation'}
+TYPES=('frost','wind','heat','fog','snow','freezing','ice','rain','durationrain','storm','stormwind','stormrain','hail','rotation')
+POTENTIAL={'ice','stormwind','stormrain','hail','rotation'}
 N=GRID['nx']*GRID['ny']
 
 def timestamp(s):return int(dt.datetime.fromisoformat(s.replace('Z','+00:00')).timestamp())
@@ -36,7 +36,8 @@ def load_model(name,branch,max_age,now,ends):
     root=ROOT+branch+'/'
     m=read(root+'index.json');run=timestamp(m['run']);g=m['grid']
     if m['schema']!=2 or m['model']!=name or not 0<=now-run<=max_age*3600:raise ValueError('stale or invalid run')
-    idx,valid=grid_indices(g); hours={h for h in m['hours'] if run+h*3600 in set(ends)|{ends[0]-10800}}
+    idx,valid=grid_indices(g); targets=set(ends)|{e-shift for e in ends for shift in (10800,21600,32400,43200)}
+    hours={h for h in m['hours'] if run+h*3600 in targets}
     def load(pair):
         h,k=pair
         try:
@@ -48,7 +49,7 @@ def load_model(name,branch,max_age,now,ends):
             return (run+h*3600,k),arr
         except Exception as e:
             print(name,h,k,str(e)[:100],flush=True);return (run+h*3600,k),None
-    jobs=[(h,k) for h in hours for k in FIELDS if k in m['frames'][str(h)]]
+    jobs=[(h,k) for h in hours for k in FIELDS if k in m['frames'][str(h)] and (run+h*3600 in ends or k in ('rainTotal','temp2','ww','ptype'))]
     with ThreadPoolExecutor(max_workers=10) as pool:fields={k:v for k,v in pool.map(load,jobs) if v is not None}
     if not fields:raise ValueError('no valid fields')
     return dict(model=name,run=run,fields=fields,step=g['step'])
@@ -71,6 +72,18 @@ def analyze(fields,end):
     # Only classify rain totals with liquid-phase evidence; snow water is not rain.
     liquid=(np.isin(ww,[51,53,55,61,63,65,80,81,82,95,96,99])|np.isin(pt,[1])|(t>2))&~snow&~freeze
     rain=np.where(liquid| (precip==0),precip,np.nan)
+    # A 12-hour total is only labelled as sustained rain if every 3-hour
+    # subperiod has liquid-phase evidence (or zero precipitation).
+    sustained=val('rainTotal')-val('rainTotal',end-43200)
+    wet_windows=np.zeros(N,dtype=np.uint8)
+    for shift in (0,10800,21600,32400):
+        tt=end-shift; w=val('ww',tt); p=val('ptype',tt); temp=val('temp2',tt)
+        amount=val('rainTotal',tt)-val('rainTotal',tt-10800)
+        nonliquid=np.isin(w,[56,57,66,67,70,71,72,73,74,75,77,85,86])|np.isin(p,[3,5,6,7,8,12])
+        wetliquid=(np.isin(w,[51,53,55,61,63,65,80,81,82,95,96,99])|np.isin(p,[1])|(temp>2))&~nonliquid
+        sustained[~((amount>=0)&((amount==0)|wetliquid))]=np.nan
+        wet_windows+=(amount>=.5)&wetliquid
+    sustained[np.isfinite(sustained)&((wet_windows<3)|~(rain>=.5))]=0
     capes=np.fmax(val('mlcape'),val('mucape'));cin=val('mlcin');shear=val('s06')
     conv=np.isin(ww,[95,96,99])|((capes>=500)&(np.abs(cin)<=125)&wet)
     conv_known=np.isfinite(ww)|(np.isfinite(capes)&np.isfinite(cin)&np.isfinite(precip))
@@ -87,7 +100,7 @@ def analyze(fields,end):
                 fog=levels(np.where(v>=0,-v,np.nan),[-.25,-.05]),
                 snow=categorical(phase_known,np.isin(ww,[70,71,72,73,74,75,77,85,86])|(snow&wet)),freezing=categorical(phase_known,freeze),
                 ice=categorical(np.isfinite(ground)&(np.isfinite(precip)|np.isfinite(rh)),(ground<=0)&(wet|(rh>=95))),
-                rain=levels(rain,[20,35,55,80]),storm=storm,stormwind=conv_gust,stormrain=conv_rain,
+                rain=levels(rain,[20,35,55,80]),durationrain=levels(sustained,[25,40,60,90]),storm=storm,stormwind=conv_gust,stormrain=conv_rain,
                 hail=categorical(conv_known&np.isfinite(ship),conv&(ship>=1)),
                 rotation=categorical(conv_known&np.isfinite(stp),conv&(stp>=1)))
 
@@ -103,33 +116,51 @@ def combine(arrays,kind):
     out[both]=(20+common[both]) if kind in POTENTIAL else (10+common[both])
     return out
 
-def build(now,models,ends):
+def build(now,models,ends,watch=False):
     periods=[]
+    # Keep long-range outlooks smaller than the high-resolution 24h product.
+    selection=(slice(None,None,2),slice(None,None,2)) if watch else (slice(None),slice(None))
+    def pack(arr):
+        return base64.b64encode(arr.reshape(GRID['ny'],GRID['nx'])[selection].tobytes()).decode()
+    continuation={k:np.zeros(N,dtype=bool) for k in TYPES}
+    cutoff=now+86400
     for end in ends:
         rows=[analyze(m['fields'],end) for m in models]
-        layers={k:base64.b64encode(combine([r[k] for r in rows],k).tobytes()).decode() for k in TYPES}
+        codes={k:combine([r[k] for r in rows],k) for k in TYPES}
+        # Do not create another Watch for a continuous, already warned event.
+        if watch:
+            if end-10800<cutoff:
+                for k,c in codes.items():continuation[k]=(c>=11)&(c<=14)
+                continue
+            for k,c in codes.items():
+                continuation[k]&=(c>=11)&(c<=14)
+                c[continuation[k]]=0
+        elif end-10800>=cutoff:break
+        layers={k:pack(c) for k,c in codes.items()}
         # Numeric values from the same models/time that actually triggered
         # the hazard, not invented ranges derived from warning thresholds.
         metrics={}
-        for kind,field in {'frost':'temp2','heat':'temp2','wind':'gust','fog':'visibility','rain':'rainTotal','stormrain':'rainTotal','stormwind':'gust'}.items():
+        for kind,field in {'frost':'temp2','heat':'temp2','wind':'gust','fog':'visibility','snow':'rainTotal','rain':'rainTotal','durationrain':'rainTotal','stormrain':'rainTotal','stormwind':'gust'}.items():
             summed=np.zeros(N,dtype=np.float32);count=np.zeros(N,dtype=np.uint8)
             for model,row in zip(models,rows):
                 values=model['fields'].get((end,field))
                 if values is None:continue
                 if field=='rainTotal':
-                    before=model['fields'].get((end-10800,field))
+                    before=model['fields'].get((end-(43200 if kind=='durationrain' else 10800),field))
                     if before is None:continue
                     values=values-before
                 valid=(row[kind]>0)&(row[kind]<255)&np.isfinite(values)
+                if field=='rainTotal':valid&=values>=0
                 summed[valid]+=values[valid];count[valid]+=1
             mean=np.divide(summed,count,out=np.zeros_like(summed),where=count>0)
             packed=np.where((count>0)&(np.abs(mean)<3276),np.rint(mean*10),-32768).astype('<i2')
-            metrics[kind]=base64.b64encode(packed.tobytes()).decode()
+            metrics[kind]=pack(packed)
         periods.append(dict(start=end-10800,end=end,layers=layers,metrics=metrics))
-    return dict(schema=1,generated=now,grid=GRID,models=[{k:m[k] for k in ('model','run','step')} for m in models],periods=periods)
+    grid=dict(GRID,step=.04,nx=241,ny=206) if watch else GRID
+    return dict(schema=1,generated=now,grid=grid,models=[{k:m[k] for k in ('model','run','step')} for m in models],periods=periods)
 
 def main():
-    now=int(dt.datetime.now(dt.timezone.utc).timestamp());first=(now//10800+1)*10800;ends=list(range(first,now+24*3600+1,10800))
+    now=int(dt.datetime.now(dt.timezone.utc).timestamp());first=(now//10800+1)*10800;ends=list(range(first,now+96*3600+10800,10800))
     def get_model(spec):
         try:return load_model(*spec,now,ends)
         except Exception as e:print(spec[0],str(e),flush=True);return None
@@ -141,6 +172,8 @@ def main():
     import sys
     data=build(now,models,ends);path=Path(sys.argv[1] if len(sys.argv)>1 else 'data/national-risks.json.gz');path.parent.mkdir(parents=True,exist_ok=True)
     with gzip.open(path,'wt',encoding='utf8') as f:json.dump(data,f,separators=(',',':'))
+    with gzip.open(path.with_name('national-watches.json.gz'),'wt',encoding='utf8') as f:json.dump(build(now,models,ends,watch=True),f,separators=(',',':'))
     print('Regional forecast',[(m['model'],len(m['fields'])) for m in models],len(ends),'windows',path.stat().st_size,flush=True)
 
 if __name__=='__main__':main()
+

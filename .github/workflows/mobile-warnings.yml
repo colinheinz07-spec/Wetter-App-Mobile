@@ -28,10 +28,13 @@ jobs:
           previous=$(git ls-remote --heads origin "$ref" | cut -f1)
           if test -n "$previous"; then
             git fetch --depth=1 origin "$previous"
-            test "$(git ls-tree -r --name-only "$previous")" = national-risks.json.gz
+            files=$(git ls-tree -r --name-only "$previous")
+            test "$files" = national-risks.json.gz || test "$files" = "$(printf 'national-risks.json.gz\nnational-watches.json.gz')"
             test "$(git log -1 --format=%s "$previous")" = 'Generated mobile warning snapshot'
           fi
           blob=$(git hash-object -w "$RUNNER_TEMP/national-risks.json.gz")
-          tree=$(printf '100644 blob %s\tnational-risks.json.gz\n' "$blob" | git mktree)
+          watch=$(git hash-object -w "$RUNNER_TEMP/national-watches.json.gz")
+          tree=$(printf '100644 blob %s\tnational-risks.json.gz\n100644 blob %s\tnational-watches.json.gz\n' "$blob" "$watch" | git mktree)
           commit=$(git commit-tree "$tree" -m 'Generated mobile warning snapshot')
           git push --force-with-lease="$ref:$previous" origin "$commit:$ref"
+

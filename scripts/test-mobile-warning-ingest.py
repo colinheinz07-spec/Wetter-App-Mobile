@@ -17,7 +17,7 @@ assert x['storm'][0]==2
 assert r.analyze({},end)['frost'][0]==255
 assert r.combine([x['frost'],fill(0).astype('uint8')],'frost')[0]==2
 assert r.combine([x['frost'],fill(1).astype('uint8')],'frost')[0]==11
-assert r.combine([x['storm'],x['storm']],'storm')[0]==22
+assert r.combine([x['storm'],x['storm']],'storm')[0]==12
 assert x['stormwind'][0]==3 and x['stormrain'][0]==1 and x['hail'][0]==255
 assert r.combine([x['stormwind'],x['stormwind']],'stormwind')[0]==23
 assert r.combine([fill(255).astype('uint8')],'wind')[0]==255
@@ -29,4 +29,19 @@ models=[dict(model='ICON-D2',run=0,step=.02,fields=field(end,temp2=-4)),dict(mod
 period=r.build(0,models,[end])['periods'][0]
 assert np.frombuffer(base64.b64decode(period['metrics']['frost']),dtype='<i2')[0]==-30
 assert np.frombuffer(base64.b64decode(period['metrics']['wind']),dtype='<i2')[0]==-32768
+ends=list(range(10800,72*3600+1,10800))
+fields={**{(e,'temp2'):fill(-2) for e in ends[:12]},**{(e,'temp2'):fill(2) for e in ends[12:14]},**{(e,'temp2'):fill(-3) for e in ends[14:]}}
+models=[dict(model=m,run=0,step=.02,fields=fields) for m in ('ICON-D2','GFS')]
+near=r.build(0,models,ends);watch=r.build(0,models,ends,watch=True)
+assert len(near['periods'])==8 and len(watch['periods'])==16
+assert watch['periods'][0]['start']==86400
+assert watch['grid']['step']==.04
+assert base64.b64decode(watch['periods'][0]['layers']['frost'])[0]==0 # continuing active event
+assert base64.b64decode(watch['periods'][6]['layers']['frost'])[0]==11 # distinct later event
+rain_fields={}
+for i in range(5):
+    rain_fields[(i*10800,'rainTotal')]=fill(i*8)
+    rain_fields[(i*10800,'ww')]=fill(61)
+assert r.analyze(rain_fields,43200)['durationrain'][0]==1
 print('PASS: independent model agreement, uncertain convective signal, missing inputs, phase and own thresholds')
+
