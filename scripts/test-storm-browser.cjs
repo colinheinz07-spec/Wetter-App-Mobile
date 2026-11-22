@@ -1,0 +1,29 @@
+const {chromium}=require('playwright');
+const assert=require('node:assert/strict');
+const path=require('node:path');
+(async()=>{
+ const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{})});
+ try{
+  const page=await browser.newPage({viewport:{width:390,height:844}}),t=Math.floor(Date.now()/1000),errors=[];
+  page.on('pageerror',e=>errors.push(e.message));
+  let cells=[{id:'test-7',point:[8,50],polygons:[[[7.98,49.98],[8.02,49.98],[8.02,50.02],[7.98,50.02]]],areaKm2:9,lightning:12,speedKmh:42,dbz:57,rainFlag:2,rainMm:22,rainMinutes:30,hailArea:2,gustKmh:82,path:[{time:t+900,point:[8.15,50],ellipse:[2,1,90]},{time:t+1800,point:[8.3,50],ellipse:[5,2,90]}]}];
+  const properties={STATUS:'Actual',MSGTYPE:'Alert',SCOPE:'Public',ONSET:new Date((t-300)*1000).toISOString(),EXPIRES:new Date((t+3600)*1000).toISOString(),SENT:new Date((t-600)*1000).toISOString(),IDENTIFIER:'id',SEVERITY:'Moderate',CERTAINTY:'Likely',EVENT:'SCHNEEFALL',HEADLINE:'Amtliche WARNUNG vor SCHNEEFALL'};
+  await page.route(/^https?:\/\//,async route=>{const url=route.request().url();const data=url.includes('Warnungen_Gemeinden_vereinigt')?{type:'FeatureCollection',numberMatched:1,features:[{properties,geometry:{type:'Polygon',coordinates:[[[9,50],[10,50],[10,51],[9,50]]]}}]}:url.includes('storm-tracks-data/storm-tracks.json')?{schema:1,generated:t,observed:t-300,cells}:null;if(data)await route.fulfill({json:data,headers:{'Access-Control-Allow-Origin':'*'}});else await route.abort()});
+  await page.goto('file://'+path.join(process.cwd(),'index.html'));
+  await page.locator('#navigation button[data-page="warnings"]').click();
+  await page.locator('[data-nw-storm="test-7"]').waitFor();
+  await page.locator('#nw-list').getByText('Amtliche Meldungen · 1',{exact:true}).waitFor();
+  assert.equal(await page.locator('#nw-canvas [data-storm-id]').count(),1);
+  assert.match(await page.locator('#nw-list').innerText(),/Amtliche Meldungen · 1/);
+  await page.locator('[data-nw-storm="test-7"]').click();
+  assert.match(await page.locator('#nw-detail').innerText(),/42 km\/h/);
+  assert.match(await page.locator('#nw-detail').innerText(),/22 mm \/ 30 min/);
+  assert.match(await page.locator('#nw-detail').innerText(),/82 km\/h/);
+  assert.match(await page.locator('#nw-detail').innerText(),/Hagel klassifiziert/);
+  await page.waitForTimeout(500);cells=[];await page.locator('#nw-refresh').click();
+  await page.locator('#nw-list').getByText('Keine passenden Zellen', {exact:false}).waitFor();
+  assert.equal(await page.locator('#nw-canvas [data-storm-id]').count(),0);
+  assert.equal(await page.locator('#nw-detail .nw-storm-details').count(),0);
+  assert.deepEqual(errors,[]);console.log('PASS: real mobile browser, live warnings, cell details and removal after next radar snapshot');
+ }finally{await browser.close()}
+})().catch(e=>{console.error(e);process.exitCode=1});

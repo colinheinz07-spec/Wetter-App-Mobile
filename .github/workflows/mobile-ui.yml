@@ -38,6 +38,8 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Test actual app in mobile browser
         run: node scripts/check-mobile-browser.cjs
+      - name: Test storm tracking and live warning lifecycle
+        run: node scripts/test-storm-browser.cjs
       - name: Test model and radar availability, caching and explanations
         run: node scripts/test-data-performance.cjs
       - name: Upload screenshots for review

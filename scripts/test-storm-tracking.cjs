@@ -1,0 +1,18 @@
+const assert=require('node:assert/strict');
+const w=require('../assets/national-warnings.js');
+const t=1795368000,cell={id:'cell-1',point:[8,50],polygons:[[[7.98,49.98],[8.02,49.98],[8.02,50.02],[7.98,50.02]]],areaKm2:9,lightning:12,speedKmh:42,hailFlag:2,rainFlag:3,gustFlag:null,path:[{time:t+900,point:[8.15,50],ellipse:[2,1,90]},{time:t+1800,point:[8.3,50],ellipse:[5,2,90]}]};
+const snapshot={schema:1,generated:t+300,observed:t,cells:[cell]};
+assert.ok(w.stormFresh(snapshot,t+301));
+assert.ok(!w.stormFresh({...snapshot,generated:t+1201},t+1201),'Fresh download cannot refresh stale radar');
+assert.ok(w.stormFresh({...snapshot,cells:[]},t+301),'Valid empty analysis');
+assert.equal(w.stormTitle(cell),'Gewitterzelle');assert.equal(w.stormTitle({...cell,lightning:0}),'Konvektive Radar-Zelle');
+assert.equal(w.stormLevel(cell),3);assert.deepEqual(w.stormKinds(cell),['storm','stormrain','rain','hail']);
+assert.equal(w.direction(cell),90);assert.ok(w.stormHit(cell,[8,50],t+300).current);
+assert.equal(w.stormHit(cell,[8.29,50],t+300).time,t+1800);
+assert.equal(w.stormHit(cell,[9,50],t+300),null);
+assert.equal(w.stormCorridor(cell,t+1801).length,0);
+const geometry={type:'Polygon',coordinates:[[[7,49],[8,49],[8,50],[7,49]]]},properties={STATUS:'Actual',MSGTYPE:'Alert',SCOPE:'Public',ONSET:new Date((t-300)*1000).toISOString(),EXPIRES:new Date((t+300)*1000).toISOString(),SENT:new Date((t-600)*1000).toISOString(),IDENTIFIER:'id',SEVERITY:'Moderate',CERTAINTY:'Likely',EVENT:'SCHNEEFALL'};
+const d=w.normalizeOfficial({type:'FeatureCollection',numberMatched:1,features:[{geometry,properties}]},t);
+assert.equal(d.alerts.length,1);assert.equal(w.alertStage(d.alerts[0],t),'active');assert.equal(w.normalizeOfficial({type:'FeatureCollection',features:[{geometry,properties}]},t+301).alerts.length,0);
+assert.throws(()=>w.normalizeOfficial({type:'FeatureCollection',numberMatched:3,features:[]},t));
+console.log('PASS: live official warnings, expiry, independent radar time, lightning, hazard flags and forecast corridor');

@@ -1,0 +1,37 @@
+name: Mobile live storm tracking and official warnings
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['scripts/ingest-storm-tracks.py', '.github/workflows/storm-tracking.yml']
+  schedule:
+    - cron: '2-57/5 * * * *'
+permissions:
+  contents: write
+concurrency:
+  group: mobile-live-storm-data
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/test-storm-ingest.py && node scripts/test-storm-tracking.cjs
+      - run: python3 scripts/ingest-storm-tracks.py "$RUNNER_TEMP/storm-output"
+      - name: Publish only successful snapshots
+        run: |
+          git config user.name 'Wetter Mobile Data'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          if git ls-remote --exit-code --heads origin storm-tracks-data; then
+            git fetch origin storm-tracks-data
+            git worktree add --detach "$RUNNER_TEMP/storm-publish" FETCH_HEAD
+          else
+            git worktree add --detach "$RUNNER_TEMP/storm-publish" HEAD
+            git -C "$RUNNER_TEMP/storm-publish" switch --orphan storm-tracks-data
+          fi
+          cp "$RUNNER_TEMP/storm-output/"*.json "$RUNNER_TEMP/storm-publish/"
+          cd "$RUNNER_TEMP/storm-publish"
+          git add -- *.json
+          git diff --cached --quiet || git commit -m 'Refresh live DWD observations'
+          git push origin HEAD:refs/heads/storm-tracks-data
