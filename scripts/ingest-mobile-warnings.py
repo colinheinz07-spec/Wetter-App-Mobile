@@ -108,7 +108,24 @@ def build(now,models,ends):
     for end in ends:
         rows=[analyze(m['fields'],end) for m in models]
         layers={k:base64.b64encode(combine([r[k] for r in rows],k).tobytes()).decode() for k in TYPES}
-        periods.append(dict(start=end-10800,end=end,layers=layers))
+        # Numeric values from the same models/time that actually triggered
+        # the hazard, not invented ranges derived from warning thresholds.
+        metrics={}
+        for kind,field in {'frost':'temp2','heat':'temp2','wind':'gust','fog':'visibility','rain':'rainTotal','stormrain':'rainTotal','stormwind':'gust'}.items():
+            summed=np.zeros(N,dtype=np.float32);count=np.zeros(N,dtype=np.uint8)
+            for model,row in zip(models,rows):
+                values=model['fields'].get((end,field))
+                if values is None:continue
+                if field=='rainTotal':
+                    before=model['fields'].get((end-10800,field))
+                    if before is None:continue
+                    values=values-before
+                valid=(row[kind]>0)&(row[kind]<255)&np.isfinite(values)
+                summed[valid]+=values[valid];count[valid]+=1
+            mean=np.divide(summed,count,out=np.zeros_like(summed),where=count>0)
+            packed=np.where((count>0)&(np.abs(mean)<3276),np.rint(mean*10),-32768).astype('<i2')
+            metrics[kind]=base64.b64encode(packed.tobytes()).decode()
+        periods.append(dict(start=end-10800,end=end,layers=layers,metrics=metrics))
     return dict(schema=1,generated=now,grid=GRID,models=[{k:m[k] for k in ('model','run','step')} for m in models],periods=periods)
 
 def main():

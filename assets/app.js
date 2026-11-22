@@ -1741,8 +1741,8 @@ async function fetchQuickWeather(p,model,root){
 }
 const pointReads=new Map();
 async function pointRead(root,path,zip=false,version=''){
- const url=root+path+'?v='+encodeURIComponent(version||Math.floor(Date.now()/(root.includes('/generated-live-ruc/')?60000:120000)));if(pointReads.has(url))return pointReads.get(url);
- const task=(async()=>{try{const r=await fetch(url,{credentials:'omit',cache:version?'default':'no-cache',priority:root.includes('/quick/')||root.includes('/generated-live-ruc/')?'high':'low',signal:AbortSignal.timeout(zip?20000:7000)});if(!r.ok)return null;if(!zip)return await r.json();const a=await r.arrayBuffer(),b=new Uint8Array(a);return b[0]===31&&b[1]===139?await new Response(new Blob([a]).stream().pipeThrough(new DecompressionStream('gzip'))).json():JSON.parse(new TextDecoder().decode(a));}catch{return null}})().finally(()=>pointReads.delete(url));pointReads.set(url,task);return task;
+ const liveRoot=root.includes('/generated-live-ruc/')||root.includes('/mobile-live-data/'),url=root+path+'?v='+encodeURIComponent(version||Math.floor(Date.now()/(liveRoot?60000:120000)));if(pointReads.has(url))return pointReads.get(url);
+ const task=(async()=>{try{const r=await fetch(url,{credentials:'omit',cache:version?'default':'no-cache',priority:root.includes('/quick/')||liveRoot?'high':'low',signal:AbortSignal.timeout(zip?20000:7000)});if(!r.ok)return null;if(!zip)return await r.json();const a=await r.arrayBuffer(),b=new Uint8Array(a);return b[0]===31&&b[1]===139?await new Response(new Blob([a]).stream().pipeThrough(new DecompressionStream('gzip'))).json():JSON.parse(new TextDecoder().decode(a));}catch{return null}})().finally(()=>pointReads.delete(url));pointReads.set(url,task);return task;
 }
 async function fetchLocationTile(p,model,root){
  const key=pointKey(p)+'/'+root;if(pointWeatherRequests.has(key))return pointWeatherRequests.get(key);if(Date.now()-(pointWeatherChecks.get(key)||0)<120000)return false;
@@ -1815,16 +1815,18 @@ function currentGridFrame(point,now=Date.now(),models=forecastPriority){
 // Independent, native triangular-cell surface analysis. Forecasts and
 // weather-station packets never supply an "analysis" value for the location.
 const liveAnalysisRoot='https://raw.githubusercontent.com/colinheinz07-spec/Wetter-App/generated-live-ruc/';
+const mobileLiveAnalysisRoot='https://raw.githubusercontent.com/colinheinz07-spec/Wetter-App-Mobile/mobile-live-data/';
 const liveAnalysisCache=new Map(),liveAnalysisRequests=new Map(),liveAnalysisChecks=new Map();
 const liveAge=90*60000;
+const lastAnalysisAge=6*3600000;
 const liveFields=['temp2','wind','gust','dew','rh2','winddir','slp','cloud'];
 const liveCore=liveFields.filter(id=>id!=='gust');
 function liveDistanceM(a,b){const rad=Math.PI/180,d=(b[1]-a[1])*rad,l=(b[0]-a[0])*rad,h=Math.sin(d/2)**2+Math.cos(a[1]*rad)*Math.cos(b[1]*rad)*Math.sin(l/2)**2;return 12742000*Math.asin(Math.sqrt(Math.min(1,h)))}
 function validLiveValue(id,v){return Number.isFinite(v)&&(id==='temp2'||id==='dew'?v>=-80&&v<=60:id==='rh2'||id==='cloud'?v>=0&&v<=100:id==='winddir'?v>=0&&v<=360:id==='slp'?v>=850&&v<=1100:v>=0&&v<=300)}
 const liveTileKey=p=>Math.floor(p[0])+'_'+Math.floor(p[1]);
-function validateLiveAnalysis(m,now){
+function validateLiveAnalysis(m,now,maxAge=liveAge){
  const run=Date.parse(m?.run),generated=Date.parse(m?.generated);
- if(m?.schema!==1||m.product!=='ruc-surface-analysis'||m.model!=='ICON-D2-RUC'||m.gridMapping!=='native-triangular-cells'||m.coordScale!==.00001||m.scale!==.1||m.tileStep!==1||m.missing!==-32768||!Number.isFinite(run)||!Number.isFinite(generated)||run>now||now-run>liveAge||generated<run||generated>now+60000||!Array.isArray(m.fields)||!liveCore.every(k=>m.fields.includes(k))||m.fields.some(k=>!liveFields.includes(k))||!Array.isArray(m.tiles)||m.tiles.length>3000||m.tiles.some(k=>!/^-?\d{1,3}_-?\d{1,3}$/.test(k)))return null;
+ if(m?.schema!==1||m.product!=='ruc-surface-analysis'||m.model!=='ICON-D2-RUC'||m.gridMapping!=='native-triangular-cells'||m.coordScale!==.00001||m.scale!==.1||m.tileStep!==1||m.missing!==-32768||!Number.isFinite(run)||!Number.isFinite(generated)||run>now||now-run>maxAge||generated<run||generated>now+60000||!Array.isArray(m.fields)||!liveCore.every(k=>m.fields.includes(k))||m.fields.some(k=>!liveFields.includes(k))||!Array.isArray(m.tiles)||m.tiles.length>3000||m.tiles.some(k=>!/^-?\d{1,3}_-?\d{1,3}$/.test(k)))return null;
  if(m.fields.includes('gust')&&(Date.parse(m.gust?.valid)!==run||![0,60].includes(m.gust?.intervalMinutes)||Date.parse(m.gust?.run)!==run-m.gust.intervalMinutes*60000))return null;
  return m;
 }
@@ -1846,16 +1848,19 @@ async function fetchLiveAnalysis(point,force=false){
  if(!point)return;const key=pointKey(point),now=Date.now();if(liveAnalysisRequests.has(key))return liveAnalysisRequests.get(key);
  const cached=liveAnalysisCache.get(key),checkInterval=cached&&now-cached.run<=60*60000?120000:60000;
  if(!force&&now-(liveAnalysisChecks.get(key)||0)<checkInterval)return;liveAnalysisChecks.set(key,now);while(liveAnalysisChecks.size>16)liveAnalysisChecks.delete(liveAnalysisChecks.keys().next().value);
- const task=(async()=>{try{
-  const m=validateLiveAnalysis(await pointRead(liveAnalysisRoot,'index.json'),Date.now());if(!m)return;
+ const load=async root=>{try{
+  const m=validateLiveAnalysis(await pointRead(root,'index.json'),Date.now(),lastAnalysisAge);if(!m)return;
   const tile=liveTileKey(point);if(!m.tiles.includes(tile))return;
   const previous=liveAnalysisCache.get(key),run=Date.parse(m.run);if(previous&&(previous.run>run||previous.run===run&&previous.generated>=Date.parse(m.generated)))return;
-  const t=await pointRead(liveAnalysisRoot,'tile-'+tile+'.json.gz',true,m.generated),sample=decodeLiveTile(m,t,point);
+  const t=await pointRead(root,'tile-'+tile+'.json.gz',true,m.generated),sample=decodeLiveTile(m,t,point);
   if(!sample)return;
+  const latest=liveAnalysisCache.get(key);if(latest&&(latest.run>sample.run||latest.run===sample.run&&latest.generated>=sample.generated))return;
   liveAnalysisCache.set(key,sample);while(liveAnalysisCache.size>6)liveAnalysisCache.delete(liveAnalysisCache.keys().next().value);
   if(pointKey(homeLocationPoint(location))===key)refreshLiveHero();
- }catch{}})().finally(()=>liveAnalysisRequests.delete(key));liveAnalysisRequests.set(key,task);return task;
+ }catch{}};
+ const task=Promise.allSettled([load(mobileLiveAnalysisRoot),load(liveAnalysisRoot)]).finally(()=>liveAnalysisRequests.delete(key));liveAnalysisRequests.set(key,task);return task;
 }
+function lastLocalAnalysis(point,now){const a=point&&liveAnalysisCache.get(pointKey(point));return a&&a.run<=now&&now-a.run>liveAge&&now-a.run<=lastAnalysisAge&&validLiveValue('temp2',a.values.temp2)?{value:a.values.temp2,time:a.run}:null}
 // A regional model's explicitly published hour-zero initial state is an
 // analysis fallback, but any positive forecast lead is forbidden here.
 function liveInitialState(f,point,now){
@@ -2654,8 +2659,8 @@ function liveHeroWeatherHTML(f,radar,point,now,live=liveLocalWeather(f,point,now
  const condition=observed.condition==='Wetterzustand nicht verfügbar'&&!f&&!radar&&!phase?(typeof navigator!=='undefined'&&navigator.onLine===false?'Offline · keine aktuellen Ortsdaten':locationRefreshTime&&now-locationRefreshTime>20000?'Ortsprognose nicht verfügbar':'Ortsprognose wird geladen …'):observed.condition;
  const rate=radar&&radar.rate>0?' · '+localFormat(radar.rate)+' mm/h (Radar '+localTime(radar.time,{hour:'2-digit',minute:'2-digit'})+')': '';
  const clouds=live.cloud.value,cloudText=Number.isFinite(clouds)?' · Bewölkung '+localFormat(clouds,0)+' % ('+liveKind(live.cloud)+')':'';
- const age=live.temp2.kind==='analysis'?' · vor '+Math.max(0,Math.floor((now-live.temp2.time)/60000))+' min':'';
- return '<div><div class="temp">'+temperatureText(temp)+'<span>°C</span></div><div class="feels live-temp-source">'+liveEscape(live.temp2.source+age)+'</div><div class="condition">'+condition+'</div><div class="feels">'+(Number.isFinite(comfort.value)?'Gefühlt '+temperatureText(comfort.value)+' °C · Näherung<br>':'')+observed.source+rate+cloudText+'</div></div>'+summaryWeatherIcon(observed);
+ const age=live.temp2.kind==='analysis'?' · vor '+Math.max(0,Math.floor((now-live.temp2.time)/60000))+' min':'',last=live.temp2.kind==='missing'?lastLocalAnalysis(point,now):null;
+ return '<div><div class="temp">'+temperatureText(temp)+'<span>°C</span></div><div class="feels live-temp-source">'+liveEscape(live.temp2.source+age)+'</div>'+(last?'<div class="feels"><b>Letzte Ortsanalyse: '+temperatureText(last.value)+' °C</b> · '+localTime(last.time,{hour:'2-digit',minute:'2-digit'})+' Uhr · nicht aktuell</div>':'')+'<div class="condition">'+condition+'</div><div class="feels">'+(Number.isFinite(comfort.value)?'Gefühlt '+temperatureText(comfort.value)+' °C · Näherung<br>':'')+observed.source+rate+cloudText+'</div></div>'+summaryWeatherIcon(observed);
 }
 const liveDetailFields={'Temperatur':['temp2','°C'],'Taupunkt':['dew','°C'],'Relative Feuchtigkeit':['rh2','%'],'Windgeschwindigkeit':['wind','km/h'],'Windböen':['gust','km/h'],'Windrichtung':['winddir','°'],'Luftdruck (NN)':['slp','hPa'],'Gesamtbewölkung':['cloud','%']};
 function liveDetailValue(label,live){const [id,unit]=liveDetailFields[label],s=live[id];return [label,displayValue(s.value,unit),unit,liveEscape(s.source)]}

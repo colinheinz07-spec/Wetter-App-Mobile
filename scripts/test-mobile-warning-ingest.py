@@ -1,4 +1,5 @@
 import importlib.util
+import base64
 from pathlib import Path
 import numpy as np
 
@@ -24,4 +25,8 @@ assert r.analyze(field(end,temp2=39),end)['heat'][0]==4
 assert r.analyze(field(end,temp2=37),end)['heat'][0]==3
 assert r.analyze(field(end,ww=71,rainTotal=31,temp2=-1),end)['rain'][0]==255
 assert r.analyze(field(end,ww=71,rainTotal=31,temp2=-1),end)['snow'][0]==1
+models=[dict(model='ICON-D2',run=0,step=.02,fields=field(end,temp2=-4)),dict(model='GFS',run=0,step=.25,fields=field(end,temp2=-2))]
+period=r.build(0,models,[end])['periods'][0]
+assert np.frombuffer(base64.b64decode(period['metrics']['frost']),dtype='<i2')[0]==-30
+assert np.frombuffer(base64.b64decode(period['metrics']['wind']),dtype='<i2')[0]==-32768
 print('PASS: independent model agreement, uncertain convective signal, missing inputs, phase and own thresholds')

@@ -1,0 +1,57 @@
+name: Mobile independent live surface analysis
+on:
+  workflow_dispatch:
+  schedule:
+    # Check shortly after likely publication times; GitHub scheduling may
+    # still be delayed, so the client must keep validating exact data age.
+    - cron: '3,13,23,33,43,53 * * * *'
+  push:
+    branches: [main]
+    paths: ['scripts/ingest-ruc-live.py','scripts/ingest-ruc-hail.py','scripts/test-ruc-live.py','.github/workflows/mobile-live.yml']
+permissions:
+  contents: write
+concurrency:
+  group: mobile-ruc-live-snapshot
+  cancel-in-progress: false
+jobs:
+  analysis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install 'eccodes>=2.42' numpy scipy
+      - run: python scripts/test-ruc-live.py
+      - name: Publish native analysis tiles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh auth setup-git
+          dir="$RUNNER_TEMP/ruc-live"
+          mkdir -p "$dir"
+          git -C "$dir" init
+          git -C "$dir" remote add origin "https://github.com/${{ github.repository }}.git"
+          ref="refs/heads/mobile-live-data"
+          old=$(git -C "$dir" ls-remote origin "$ref" | cut -f1)
+          args=()
+          if [ -n "$old" ]; then
+            git -C "$dir" fetch --depth=1 --filter=blob:none origin "$ref"
+            test "$(git -C "$dir" show -s --format=%s FETCH_HEAD)" = 'Generated RUC live analysis snapshot'
+            test "$(git -C "$dir" show -s --format=%ae FETCH_HEAD)" = '41898282+github-actions[bot]@users.noreply.github.com'
+            test -z "$(git -C "$dir" cat-file -p FETCH_HEAD | sed -n '/^parent /p')"
+            previous=$(git -C "$dir" show FETCH_HEAD:index.json | python -c 'import json,sys; print(json.load(sys.stdin)["run"])')
+            args+=(--previous-run "$previous")
+          fi
+          python scripts/ingest-ruc-live.py --output "$dir" "${args[@]}"
+          if [ ! -s "$dir/index.json" ]; then exit 0; fi
+          test "$(du -sb "$dir" | cut -f1)" -lt 150000000
+          git -C "$dir" config user.name 'github-actions[bot]'
+          git -C "$dir" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C "$dir" add -- '*.json.gz' index.json
+          git -C "$dir" commit -m 'Generated RUC live analysis snapshot'
+          git -C "$dir" push --force-with-lease="$ref:$old" origin "HEAD:$ref"

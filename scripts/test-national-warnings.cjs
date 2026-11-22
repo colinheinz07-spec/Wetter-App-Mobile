@@ -35,6 +35,11 @@ assert.deepEqual(w.pickPeriods({periods:ps},t,'6-12'),ps.slice(1,2));
 require('../assets/basemap.js');require('../assets/geography.js');
 const geo=w.mapGeometry(global.WEATHER_BASEMAP,global.WEATHER_EXTRA_GEO);
 assert.ok(geo.outline.length>10000&&geo.states.length>10000,'Standalone Germany geometry is complete');
+assert.equal(geo.districts.length,401);
+assert.equal(w.districtAt(geo,[7.95,50.65]).name,'Westerwaldkreis');
+assert.equal((w.gridContour(Uint8Array.from([1,1,1,1]),2,2,1).match(/M/g)||[]).length,1,'Adjacent cells share one seamless polygon');
+assert.equal((w.gridContour(Uint8Array.from([1,1,1,1,0,1,1,1,1]),3,3,1).match(/M/g)||[]).length,2,'Polygon preserves interior hole');
+assert.equal((w.gridContour(Uint8Array.from([1,0,0,1]),2,2,1).match(/M/g)||[]).length,2,'Diagonal cells do not invent a connecting area');
 for(const [width,height] of [[320,420],[390,420],[768,600]]){
  const scale=Math.min(width/w.MAP_W,height/w.MAP_H),[x,y]=w.project(13.4,52.52);
  const p=w.unproject(x*scale+(width-w.MAP_W*scale)/2,y*scale+(height-w.MAP_H*scale)/2,width,height);
@@ -66,9 +71,9 @@ assert.doesNotMatch(el('national-warning').innerHTML,/id="nw-list"/);
 // Inject independent sources and exercise the real refresh and map click code.
 (async()=>{
  const now=Math.floor(Date.now()/1000),grid={west:5.5,south:47,step:.02,nx:481,ny:411};
- const frost=Buffer.alloc(grid.nx*grid.ny),empty=Buffer.alloc(frost.length);frost[150*grid.nx+125]=12;
+ const frost=Buffer.alloc(grid.nx*grid.ny),empty=Buffer.alloc(frost.length),metric=Buffer.alloc(frost.length*2);for(let i=0;i<frost.length;i++)metric.writeInt16LE(-32768,i*2);for(let y=130;y<=170;y++)for(let x=105;x<=145;x++){const i=y*grid.nx+x;frost[i]=12;metric.writeInt16LE(x<125?-40:-20,i*2)}
  const layers=Object.fromEntries(['frost','wind','heat','fog','snow','freezing','ice','rain','storm'].map(k=>[k,(k==='frost'?frost:empty).toString('base64')]));
- const model={schema:1,generated:now,grid,models:[],periods:[{start:now-300,end:now+10500,layers},{start:now+10500,end:now+21300,layers}]};assert.equal(w.validRisk(model),true);
+ const metrics={frost:metric.toString('base64')},model={schema:1,generated:now,grid,models:[],periods:[{start:now-300,end:now+10500,layers,metrics},{start:now+10500,end:now+21300,layers,metrics}]};assert.equal(w.validRisk(model),true);
  let cells=[{id:'test',point:[8,50],polygons:[[[7.98,49.98],[8.02,49.98],[8.02,50.02],[7.98,50.02]]],path:[],lightning:5,speedKmh:42,rainFlag:2,rainMm:22,rainMinutes:30}];
  const urls=[];mobile.fetch=async url=>{urls.push(url);const d=url.includes('storm-tracks.json')?{schema:1,generated:now,observed:now-300,cells}:url.includes('national-risks.json.gz')?model:null;if(!d)throw Error('Unexpected request '+url);return {ok:true,arrayBuffer:async()=>Uint8Array.from(Buffer.from(JSON.stringify(d))).buffer}};
  await handlers.get('#nw-refresh:click')();
@@ -81,6 +86,7 @@ assert.doesNotMatch(el('national-warning').innerHTML,/id="nw-list"/);
  handlers.get('#nw-close:click')();assert.equal(el('#nw-popup').hidden,true);assert.equal(el('#nw-detail').innerHTML,'');
  handlers.get('tab-upcoming:click')();assert.match(canvas.innerHTML,/data-warning-kind="frost"/);
  tap('[data-warning-kind]',{warningLon:'8',warningLat:'50'});assert.match(el('#nw-detail').innerHTML,/Frost · L2/);
+ assert.match(el('#nw-detail').innerHTML,/droht verbreitet Frost/);assert.match(el('#nw-detail').innerHTML,/meist -4 bis -2 °C/);assert.match(canvas.innerHTML,/class="nw-districts"/);
  handlers.get('tab-active:click')();assert.equal(el('#nw-popup').hidden,true);
  tap('[data-storm-id]',{stormId:'test'});cells=[];await handlers.get('#nw-refresh:click')();assert.doesNotMatch(canvas.innerHTML,/data-storm-id="test"/);assert.doesNotMatch(el('#nw-detail').innerHTML,/42 km\/h/);
  assert.equal(urls.length,4);assert.ok(urls.every(url=>!url.includes('official')&&!url.includes('Warnungen_Gemeinden')));
