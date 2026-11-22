@@ -7,7 +7,7 @@ const html=fs.readFileSync('index.html','utf8');
 const source=fs.readFileSync('assets/app.js','utf8');
 const baseCss=fs.readFileSync('assets/base.css','utf8');
 const css=fs.readFileSync('assets/mobile-design.css','utf8');
-const files=['index.html','assets/app.js','assets/base.css','assets/basemap.js','assets/geography.js','assets/hazards.js','assets/mobile-design.css'];
+const files=['index.html','assets/app.js','assets/base.css','assets/basemap.js','assets/geography.js','assets/hazards.js','assets/mobile-design.css','assets/weather-icons.js'];
 const size=files.reduce((n,f)=>n+fs.statSync(f).size,0);
 assert.ok(size<4*1024*1024,'SPCK files grew beyond 4 MiB: '+size);
 assert.ok(!fs.existsSync('data'),'Large data/ directory must not be included in mobile project');
@@ -57,4 +57,38 @@ const fmtBerlin=d=>new Date(d).toLocaleTimeString('de-DE',{timeZone:'Europe/Berl
 assert.ok(/^04:/.test(fmtBerlin(summer.rise)),'Wrong summer sunrise '+fmtBerlin(summer.rise));
 assert.ok(/^21:/.test(fmtBerlin(summer.set)),'Wrong summer sunset '+fmtBerlin(summer.set));
 
-console.log('PASS: full app JS, assets, light/dark CSS, core weather modules, metrics, size '+(size/1e6).toFixed(2)+' MB');
+// The same shape catalogue is shared across live, hourly and daily weather.
+require('../assets/weather-icons.js');
+const {render,keys}=globalThis.WeatherIcons;
+assert.equal(keys.length,66,'Weather symbol catalogue must retain all variants');
+assert.ok(html.indexOf('assets/weather-icons.js')<html.indexOf('assets/app.js'),'Load icon renderer before app');
+const occurrences=(svg,cls)=>svg.split('class="'+cls+'"').length-1;
+for(const key of keys){
+ const svg=render(key);
+ assert.ok(svg.startsWith('<svg class="weather-symbol"')&&svg.endsWith('</svg>')&&svg.includes('aria-label='),'Invalid weather glyph '+key);
+ for(const variable of svg.matchAll(/var\((--wx-[\w-]+)\)/g))assert.ok(css.includes(variable[1]+':'),'Missing palette colour '+variable[1]);
+}
+for(let tier=1;tier<=5;tier++){
+ const rain=render((10+tier)+'_regen_'+tier),snow=render((19+tier)+'_schnee_'+tier);
+ assert.equal(occurrences(rain,'wx-drop'),tier);assert.equal(occurrences(rain,'wx-flake'),0);
+ assert.equal(occurrences(snow,'wx-flake'),tier);assert.equal(occurrences(snow,'wx-drop'),0);
+}
+for(let tier=1;tier<=3;tier++){
+ const mixed=render((27+tier)+'_schneeregen_'+tier);
+ assert.equal(occurrences(mixed,'wx-drop'),tier);assert.equal(occurrences(mixed,'wx-flake'),tier);
+}
+assert.equal(occurrences(render('33_gefrierender_regen'),'wx-ice-line'),1);
+assert.ok(render('57_gewitter_schneeregen').includes('wx-bolt'));
+assert.ok(render('67_schneegewitter_sturm').includes('wx-windsock'));
+assert.ok(render('01_sonnig','<unsafe>').includes('&lt;unsafe&gt;'));
+assert.equal(render('unknown'),'');
+// Saturated precipitation colours must contrast with light and dark weather cards.
+const palettes=[...css.matchAll(/(?::root,\.hero-weather|:root\[data-theme=light\])\{([^}]+)\}/g)].filter(m=>m[1].includes('--wx-cloud-1')).map(m=>Object.fromEntries([...m[1].matchAll(/(--wx-[\w-]+):([^;]+);/g)].map(n=>[n[1],n[2]])));
+assert.equal(palettes.length,2);
+const luminance=hex=>hex.slice(1).match(/../g).map(x=>parseInt(x,16)/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4).reduce((sum,x,i)=>sum+x*[.2126,.7152,.0722][i],0);
+const contrast=(a,b)=>(Math.max(luminance(a),luminance(b))+.05)/(Math.min(luminance(a),luminance(b))+.05);
+for(const [index,palette] of palettes.entries())for(const [name,color] of Object.entries(palette))if(/^--wx-(rain-\d|snow-\d|ice)$/.test(name)){
+ for(const background of index?['#ffffff','#b5deef']:['#14283e','#223f59'])assert.ok(contrast(color,background)>=3,'Low symbol contrast '+name+' '+background);
+}
+console.log('PASS: full app JS, all 66 weather glyphs, light/dark CSS and contrast, core weather modules, metrics, size '+(size/1e6).toFixed(2)+' MB');
+

@@ -93,7 +93,7 @@ a{color:var(--accent2)}
 .hero-weather .temp{font-size:clamp(69px,18vw,95px);font-weight:340;letter-spacing:-6px}
 .hero-weather .condition{font-size:20px;line-height:1.35;letter-spacing:-.25px;font-weight:735}
 .hero-weather .feels{color:#d5ebf9;font-size:12px;line-height:1.6}
-.hero-weather img{filter:drop-shadow(0 10px 20px rgba(3,20,35,.23))}
+.hero-weather .weather-symbol{filter:drop-shadow(0 10px 20px rgba(3,20,35,.23))}
 .hero .metrics{border-top:1px solid rgba(227,242,255,.24);gap:10px}
 .hero .metric-label{font-size:11px;color:#cce0ee}
 .hero .metric strong{font-size:17px;letter-spacing:-.3px}
@@ -125,7 +125,7 @@ a{color:var(--accent2)}
   box-shadow:0 5px 16px rgba(11,31,56,.25);
 }
 .hour-time{font-size:11px}
-.hour img{width:43px;height:43px;object-fit:contain}
+.hour .weather-symbol{width:43px;height:43px;object-fit:contain}
 .hour strong{font-size:19px;font-weight:770}
 .hour .rain{font-weight:720;color:#a7e1f3}
 #hour-detail{border-top:1px solid var(--line);padding-top:13px}
@@ -295,6 +295,33 @@ a{color:var(--accent2)}
 .hero .live-metric-source{font-size:10px;line-height:1.45;color:#d5ebf9;overflow-wrap:anywhere;margin-top:4px}
 .hero .live-temp-source{font-size:11px;line-height:1.4;overflow-wrap:anywhere;margin:3px 0 8px}
 
-/* Weather glyphs: a tight contour makes white snow/cloud strokes legible on light cards. */
-[data-theme=light] .weather-symbol{filter:drop-shadow(0 1px 0 #475569) drop-shadow(1px 0 0 #475569) drop-shadow(-1px 0 0 #475569) drop-shadow(0 -1px 0 #475569)}
-[data-theme=light] .hero-weather .weather-symbol{filter:drop-shadow(0 1px 1px #16283b99)}
+
+/* Bold vector icons: bright on dark surfaces, saturated on white/light-blue.
+   The Live-Wetter hero always has a dark background in either app theme. */
+:root,.hero-weather{
+ --wx-cloud-1:#edf2f8;--wx-cloud-2:#d5e0eb;--wx-cloud-3:#bac8d8;--wx-cloud-4:#889bb1;--wx-cloud-5:#617790;--wx-cloud-edge:#dae8f5;
+ --wx-sun:#ffcc36;--wx-sun-ray:#ffcc36;--wx-sun-edge:#ffe29a;--wx-moon:#ffdd80;--wx-bolt:#ffcd36;
+ --wx-rain-1:#78d3ff;--wx-rain-2:#5fc7ff;--wx-rain-3:#4abaff;--wx-rain-4:#38aaff;--wx-rain-5:#a997ff;
+ --wx-snow-1:#ffa0df;--wx-snow-2:#ff86d6;--wx-snow-3:#ff74cf;--wx-snow-4:#f764c4;--wx-snow-5:#f852ba;
+ --wx-ice:#ffae5a;--wx-fog:#c7daeb;--wx-wind:#ff5c60;--wx-wind-edge:#ffe3e2;
+}
+:root[data-theme=light]{
+ --wx-cloud-1:#eef2f6;--wx-cloud-2:#d5dce6;--wx-cloud-3:#aebbc9;--wx-cloud-4:#7c8c9f;--wx-cloud-5:#58697f;--wx-cloud-edge:#40546b;
+ --wx-sun:#edaa09;--wx-sun-ray:#b76c00;--wx-sun-edge:#9c5900;--wx-moon:#edb444;--wx-bolt:#eea700;
+ --wx-rain-1:#006bb8;--wx-rain-2:#0060b0;--wx-rain-3:#0055a4;--wx-rain-4:#06428c;--wx-rain-5:#4b279e;
+ --wx-snow-1:#b51a81;--wx-snow-2:#a8187b;--wx-snow-3:#9c1675;--wx-snow-4:#8d136f;--wx-snow-5:#7e1067;
+ --wx-ice:#a94f00;--wx-fog:#475f77;--wx-wind:#c32c39;--wx-wind-edge:#8c1523;
+}
+.weather-symbol{display:block;flex-shrink:0;overflow:visible;filter:none}
+.hero-weather .weather-symbol{filter:none}
+/* The selected dark hour and hero have brighter blue gradients than ordinary cards. */
+.hero-weather,:root:not([data-theme=light]) .hour.active{
+ --wx-rain-1:#b3e8ff;--wx-rain-2:#a1e0ff;--wx-rain-3:#90d9ff;--wx-rain-4:#80d1ff;--wx-rain-5:#ded1ff;
+ --wx-snow-1:#ffd2ed;--wx-snow-2:#ffc4e7;--wx-snow-3:#ffbce3;--wx-snow-4:#ffb2df;--wx-snow-5:#ffabd9;
+ --wx-ice:#ffd2a4;--wx-fog:#e4f2ff;
+}
+/* Use the whole available icon column, retaining a 36px icon on narrow phones. */
+.hour .weather-symbol{width:48px;height:48px}
+.period .weather-symbol{width:44px;height:44px}
+.real-day .weather-symbol{width:100%;max-width:43px;height:auto;aspect-ratio:1}
+
