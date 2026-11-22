@@ -56,6 +56,23 @@ jobs:
               raw=base64.b64decode(d['amount']); assert len(raw)==n*2
               print('Oberstdorf raw radar',struct.unpack_from('<h',raw,i*2)[0], 'scan',d['time'])
           PY
+      - name: Verify independent surface evidence in Oberstdorf
+        if: matrix.kind == 'phase'
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import datetime as dt, json, urllib.parse, urllib.request
+          now=dt.datetime.now(dt.timezone.utc)
+          query=urllib.parse.urlencode(dict(lat=47.4084,lon=10.2761,max_dist=2000,date=(now-dt.timedelta(minutes=65)).isoformat(),last_date=now.isoformat()))
+          req=urllib.request.Request('https://api.brightsky.dev/weather?'+query,headers={'Origin':'null','User-Agent':'WetterApp/1.0'})
+          with urllib.request.urlopen(req,timeout=20) as response:
+              data=json.load(response)
+              print('Ground observation CORS:',response.headers.get('Access-Control-Allow-Origin'))
+          for row in data.get('weather',[]):
+              source_id=row.get('fallback_source_ids',{}).get('condition',row.get('source_id'))
+              source=next((s for s in data.get('sources',[]) if s['id']==source_id),{})
+              print('Oberstdorf ground evidence:',row.get('timestamp'),row.get('condition'),source.get('station_name'),source.get('observation_type'),source.get('height'))
+          PY
       - name: Publish independent validated snapshot
         env:
           PACKET: ${{ matrix.file }}

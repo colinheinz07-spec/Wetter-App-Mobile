@@ -1947,6 +1947,47 @@ function radarPhaseAt(d,point,now=Date.now()){
  const n=y*g.nx+x,offset=Math.floor(n/3)*4;
  try{const v=atob(d.classes.slice(offset,offset+4)).charCodeAt(n%3);return Number.isInteger(v)&&v>=0&&v<=10?{code:v,time}:null}catch{return null}
 }
+// Ground reports are independent evidence of precipitation phase only.
+// Never use their temperature, wind or other observations as the local grid.
+const observedPhaseCache=new Map(),observedPhaseRequests=new Map(),observedPhaseChecks=new Map();
+function decodeObservedPhase(packet,point,height,now){
+ const rows=Array.isArray(packet?.weather)?packet.weather:[],sources=packet?.sources||[];
+ const codes={snow:7,sleet:6,rain:3,hail:9,dry:0};
+ const candidates=[];
+ for(const w of rows){
+  const time=Date.parse(w.timestamp),code=codes[w.condition],id=w.fallback_source_ids?.condition??w.source_id,s=sources.find(x=>x.id===id);
+  if(!Number.isInteger(code)||!Number.isFinite(time)||time>now||now-time>60*60000||!s||!['current','historical'].includes(s.observation_type)||!Number.isFinite(s.lon)||!Number.isFinite(s.lat)||!Number.isFinite(s.height))continue;
+  const distance=111200*Math.hypot(s.lat-point[1],(s.lon-point[0])*Math.cos(point[1]*Math.PI/180));
+  if(distance>2000||!Number.isFinite(height)||Math.abs(height-s.height)>120)continue;
+  candidates.push({code,time,distance,height:s.height,kind:'ground',source:'Bodenbeobachtung '+String(s.station_name||'Wetterstation').replace(/[<>&"']/g,'')+' · '+localTime(time,{hour:'2-digit',minute:'2-digit'})});
+ }
+ return candidates.sort((a,b)=>b.time-a.time||a.distance-b.distance)[0]||null;
+}
+function observedPhaseAt(point,radar,now){
+ if(!point||!(radar?.rate>0))return null;
+ const phase=observedPhaseCache.get(pointKey(point));
+ return phase&&phase.code>=2&&phase.time<=now&&now-phase.time<=60*60000&&Math.abs(radar.time-phase.time)<=45*60000?phase:null;
+}
+function resolveLivePhase(point,radar,now){
+ const p=radarPhaseAt(radarPhaseData,point,now),valid=p&&(!radar||Math.abs(radar.time-p.time)<=5*60000)&&!(radar?.rate>0&&p.code===0)&&!(radar?.rate===0&&p.code>=2)?p:null;
+ if(valid&&valid.code>=2&&valid.code!==6)return valid;
+ return observedPhaseAt(point,radar,now)||valid;
+}
+async function fetchObservedPhase(point,radar,now=Date.now()){
+ if(!point||!(radar?.rate>0))return;
+ const phase=radarPhaseAt(radarPhaseData,point,now);
+ if(phase&&phase.code>=2&&phase.code!==6&&Math.abs(radar.time-phase.time)<=5*60000)return;
+ const key=pointKey(point),analysis=liveAnalysisCache.get(key),height=localHeights.get(key)??(analysis&&now-analysis.run<=liveAge?analysis.modelElevation:NaN);
+ if(!Number.isFinite(height)||observedPhaseRequests.has(key)||now-(observedPhaseChecks.get(key)||0)<5*60000)return;
+ observedPhaseChecks.set(key,now);while(observedPhaseChecks.size>24)observedPhaseChecks.delete(observedPhaseChecks.keys().next().value);
+ const task=(async()=>{try{
+  const params=new URLSearchParams({lat:String(point[1]),lon:String(point[0]),max_dist:'2000',date:new Date(now-65*60000).toISOString(),last_date:new Date(now).toISOString()});
+  const r=await fetch('https://api.brightsky.dev/weather?'+params,{signal:AbortSignal.timeout(8500),credentials:'omit'});if(!r.ok)return;
+  const p=decodeObservedPhase(await r.json(),point,height,Date.now());if(!p)return;
+  observedPhaseCache.set(key,p);while(observedPhaseCache.size>12)observedPhaseCache.delete(observedPhaseCache.keys().next().value);
+  if(activePage==='weather'&&pointKey(homeLocationPoint(location))===key){refreshPointUI();refreshLiveHero()}
+ }catch{}})().finally(()=>observedPhaseRequests.delete(key));observedPhaseRequests.set(key,task);return task;
+}
 // Restore only timestamp-validated recent scans across reloads. The network
 // refresh runs independently so a cached scan never blocks a newer one.
 async function readRadarCache(name,decode,accept){
@@ -2714,9 +2755,9 @@ function livePhaseWeather(f,radar,phase,point,now,live=null){
  const snow=rate>=2?'22_schnee_3':night?'64_schneefall_nacht':rate>=.5?'21_schnee_2':'20_schnee_1';
  const rain=rate>=4?'14_regen_4':night?'65_regen_nacht':rate>=1?'12_regen_2':'11_regen_1';
  // A phase product may classify an existing echo, never overrule a measured dry cell.
- if(phase&&radar&&(Math.abs(radar.time-phase.time)>5*60000||(phase.code===0&&wet)||(phase.code>=2&&!wet)))phase=null;
+ if(phase&&radar&&(Math.abs(radar.time-phase.time)>(phase.kind==='ground'?45:5)*60000||(phase.code===0&&wet)||(phase.code>=2&&!wet)))phase=null;
  if(phase){
-  const source='DWD HymecNG · '+localTime(phase.time,{hour:'2-digit',minute:'2-digit'});
+  const source=phase.source||'DWD HymecNG · '+localTime(phase.time,{hour:'2-digit',minute:'2-digit'});
   if(phase.code===0&&!wet)return {...currentCloudWeather(f,point,now,live),source:source+' · kein Niederschlag'};
   const phases={2:[rain,'Sprühregen'],3:[rain,'Regen'],4:['33_gefrierender_regen','Gefrierender Sprühregen'],5:['33_gefrierender_regen','Gefrierender Regen'],6:['29_schneeregen_2','Schneeregen'],7:[snow,'Schneefall'],8:[null,'Graupel'],9:[null,'Hagel'],10:[null,'Großer Hagel']};
   if(phases[phase.code])return make(...phases[phase.code],source);
@@ -2729,7 +2770,7 @@ function livePhaseWeather(f,radar,phase,point,now,live=null){
  // When no analysed type is available, prefer explicit model phase. Avoid
  // inferring rain from a generic model accumulation or an unclassified echo.
  const code=localEstimatedPhase(f,live,now),src=(radar.source||'Radar')+' · Niederschlagsart geschätzt (keine Radar-Klassifikation)';
- const estimates={2:[rain,'Sprühregen möglich'],3:[rain,'Regen wahrscheinlich'],4:['33_gefrierender_regen','Gefrierender Niederschlag möglich'],5:['33_gefrierender_regen','Gefrierender Niederschlag möglich'],6:['29_schneeregen_2','Schnee / Schneeregen möglich'],7:[snow,'Schneefall möglich'],8:[null,'Graupel möglich'],9:[null,'Hagel möglich'],11:[null,'Eiskörner möglich']};
+ const estimates={2:[rain,'Sprühregen (geschätzt)'],3:[rain,'Regen (geschätzt)'],4:['33_gefrierender_regen','Gefrierender Niederschlag (geschätzt)'],5:['33_gefrierender_regen','Gefrierender Niederschlag (geschätzt)'],6:['29_schneeregen_2','Schnee / Schneeregen (Phase unklar)'],7:[snow,'Schneefall (geschätzt)'],8:[null,'Graupel (geschätzt)'],9:[null,'Hagel (geschätzt)'],11:[null,'Eiskörner (geschätzt)']};
  if(estimates[code])return make(...estimates[code],src);
  return make(null,'Niederschlag · Art nicht bestimmt',(radar.source||'Radar')+' · keine sichere Niederschlagsart');
 }
@@ -2740,7 +2781,8 @@ const liveCompatible=(a,b)=>a.kind==='analysis'&&b.kind==='analysis'&&a.time===b
 function liveMetricHTML(icon,label,s,unit){return '<div class="metric"><div class="metric-label">'+ui(icon,13)+label+' · '+liveKind(s)+'</div><strong>'+displayValue(s.value,unit)+' <span>'+unit+'</span></strong><div class="live-metric-source">'+liveEscape(s.source)+'</div></div>'}
 function liveMetricsHTML(live){return liveMetricHTML('wind','Wind',live.wind,'km/h')+liveMetricHTML('wind','Böen',live.gust,'km/h')+liveMetricHTML('drop','Feuchte',live.rh2,'%')}
 function currentHourState(f,radar,point,now,live){
- const recent=f&&f.time<=now&&now-f.time<=liveAge?f:null,phase=radarPhaseAt(radarPhaseData,point,now);
+ const recent=f&&f.time<=now&&now-f.time<=liveAge?f:null,phase=resolveLivePhase(point,radar,now);
+ fetchObservedPhase(point,radar,now);
  return {start:Math.floor(now/HOUR_MS)*HOUR_MS,temperature:live.temp2,weather:livePhaseWeather(recent,radar,phase,point,now,live),rate:radar?.rate};
 }
 const currentHourSignature=s=>JSON.stringify([s.start,s.temperature.value,s.temperature.kind,s.temperature.time,s.temperature.source,s.weather.icon,s.weather.condition,s.weather.source,s.rate]);
@@ -3158,8 +3200,8 @@ function localEstimatedPhase(f,live,now){
  return phaseCodeFromModel(fresh?frameVal(f,'ww'):NaN,fresh?frameVal(f,'ptype'):NaN,analysis?live.temp2.value:fresh?frameVal(f,'temp2'):NaN,same&&live?.dew&&liveCompatible(live.temp2,live.dew)?live.dew.value:!analysis&&fresh?frameVal(f,'dew'):NaN,same?live.rh2.value:!analysis&&fresh?frameHumidity(f):NaN,true);
 }
 function localRadarPhaseDetail(f,radar,point,now){
- const ph=radarPhaseAt(radarPhaseData,point,now);
- if(ph&&ph.code!==1&&(!radar||Math.abs(radar.time-ph.time)<=5*60000)&&!(radar?.rate>0&&ph.code===0)&&!(radar?.rate===0&&ph.code>=2))return {name:radarTypeNames[ph.code],source:'DWD HymecNG · '+localTime(ph.time,{hour:'2-digit',minute:'2-digit'})};
+ const ph=resolveLivePhase(point,radar,now);
+ if(ph&&ph.code!==1)return {name:radarTypeNames[ph.code],source:ph.source||'DWD HymecNG · '+localTime(ph.time,{hour:'2-digit',minute:'2-digit'})};
  if(radar&&radar.rate===0)return {name:'Trocken im Radar',source:radar.source||'DWD RY'};
  if(radar?.rate>0){const code=localEstimatedPhase(f,typeof liveLocalWeather==='function'?liveLocalWeather(f,point,now):null,now);return {name:code>1?radarTypeNames[code]+' (geschätzt)':'Niederschlag · Art unbestimmt',source:radar.source+' · keine aktuelle Radar-Klassifikation'}}
  const frames=[f,...(typeof forecastPriority!=='undefined'?forecastPriority.map(m=>currentGridFrame(point,now,[m])):[])].filter(x=>x&&x.time<=now&&now-x.time<=90*60000);
@@ -3249,13 +3291,13 @@ function radarObservationSources(now=Date.now()){
 // supplementary source. A substantially newer valid measurement can take
 // precedence; missing pixels fall back geographically, never to invented rain.
 const RADAR_SOURCE_TOLERANCE_MS=10*60000;
-function useMatchedPhase(primaryTime,pairTime,phaseTime){return Number.isFinite(pairTime)&&primaryTime<phaseTime-300000&&pairTime>primaryTime;}
+function useMatchedPhase(primaryTime,pairTime,phaseTime){return Number.isFinite(pairTime)&&Math.abs(primaryTime-phaseTime)>300000&&Math.abs(pairTime-phaseTime)<=300000&&Math.abs(primaryTime-pairTime)<=10*60000;}
 function selectRadarSample(rows,phase=null){
  const samples=(rows||[]).filter(Boolean);if(!samples.length)return null;
  const latest=Math.max(...samples.map(s=>s.time));
  const ranked=samples.filter(s=>latest-s.time<=RADAR_SOURCE_TOLERANCE_MS),prefer=(best,s)=>!best||(s.priority??2)<(best.priority??2)||(s.priority??2)===(best.priority??2)&&s.time>best.time?s:best;
  const primary=ranked.reduce(prefer,null),pair=phase?.code>=2&&phase.code<=10?ranked.filter(s=>s.rate>0&&Math.abs(s.time-phase.time)<=300000).reduce(prefer,null):null;
- return pair&&useMatchedPhase(primary.time,pair.time,phase.time)?pair:primary;
+ return pair&&(primary.rate>0||pair.time>primary.time)&&useMatchedPhase(primary.time,pair.time,phase.time)?pair:primary;
 }
 function radarPacketPhase(d,point,now=Date.now()){
  if(!ownRadarFresh(d,20,now))return null;const g=d.grid,x=Math.round((point[0]-g.west)/g.step),y=Math.round((point[1]-g.south)/g.step);if(x<0||x>=g.nx||y<0||y>=g.ny)return null;const i=y*g.nx+x,o=Math.floor(i/3)*4,code=atob(d.classes.slice(o,o+4)).charCodeAt(i%3);return code<=10?{code,time:Date.parse(d.time)}:null
@@ -3322,7 +3364,7 @@ function radarPackedSelection(sources,i,phaseCode,phaseTime,tolerance,defaultTim
   if(s.priority<priority){rate=v*s.factor;time=s.time;priority=s.priority}
   if(phaseCode>=2&&phaseCode<=10&&v>0&&Math.abs(s.time-phaseTime)<=300000&&s.priority<pairPriority){pairRate=v*s.factor;pairTime=s.time;pairPriority=s.priority}
  }
- return useMatchedPhase(time,pairTime,phaseTime)?[pairRate,pairTime]:[rate,time];
+ return (rate>0||pairTime>time)&&useMatchedPhase(time,pairTime,phaseTime)?[pairRate,pairTime]:[rate,time];
 }
 // The worker receives only the fields needed for this image, not whole model runs.
 function radarWorkerPaint(frame,mode,colors,tolerance){
