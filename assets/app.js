@@ -2619,6 +2619,7 @@ function upcomingNight(days,now){
  return (now<days[0].night.end?days[0]:days[1]).night;
 }
 function temperatureExtremeTime(h){
+ if(h?.observed&&Number.isFinite(h.start))return ' · '+localTime(h.start,{hour:'2-digit',minute:'2-digit'})+' Uhr · beobachteter Stichprobenwert';
  if(Number.isFinite(h?.time))return ' · '+localTime(h.time,{hour:'2-digit',minute:'2-digit'})+' Uhr · Beobachtungs-/Analysezeit';
  if(Number.isFinite(h?.start)&&Number.isFinite(h?.end))return ' · '+localIntervalLabel(h.start,h.end)+' Uhr';
  return '';
