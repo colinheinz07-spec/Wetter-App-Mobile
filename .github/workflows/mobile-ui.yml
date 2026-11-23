@@ -18,6 +18,7 @@ on:
       - 'scripts/test-observations-browser.cjs'
       - 'scripts/test-radar-phase.cjs'
       - 'scripts/test-forecast-period-details.cjs'
+      - 'scripts/test-unified-hourly.cjs'
       - '.github/workflows/mobile-ui.yml'
   pull_request:
 permissions:
