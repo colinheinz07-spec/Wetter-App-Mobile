@@ -10,6 +10,8 @@ on:
       - 'scripts/check-mobile-browser.cjs'
       - 'scripts/test-data-performance*.cjs'
       - 'scripts/test-live-observations.cjs'
+      - 'scripts/test-cloudflare-updater.mjs'
+      - 'cloudflare/**'
       - 'scripts/test-observations.cjs'
       - 'scripts/test-observations-browser.cjs'
       - 'scripts/test-radar-phase.cjs'
@@ -28,6 +30,7 @@ jobs:
         with:
           node-version: '22'
       - run: node scripts/check-mobile.cjs
+      - run: node scripts/test-cloudflare-updater.mjs
       - run: node scripts/test-data-performance-unit.cjs
       - run: node scripts/test-live-observations.cjs
       - run: node scripts/test-observations.cjs
