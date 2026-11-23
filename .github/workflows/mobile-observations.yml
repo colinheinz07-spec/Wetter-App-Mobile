@@ -61,3 +61,9 @@ jobs:
           tree=$(printf '100644 blob %s\t%s\n' "$blob" "$PACKET" | git mktree)
           commit=$(git commit-tree "$tree" -m "$subject")
           git push --force-with-lease="$ref:$previous" origin "$commit:$ref"
+
+  doppler:
+    # Also run on Cloudflare-dispatched observation cycles, not just GitHub's delayed cron.
+    uses: ./.github/workflows/doppler-radar.yml
+  storm_tracking:
+    uses: ./.github/workflows/storm-tracking.yml
