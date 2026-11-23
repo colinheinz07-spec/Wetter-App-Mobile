@@ -60,6 +60,28 @@ function series(point,height,start,end){
  const out=[...bins].sort((a,b)=>a[0]-b[0]).map(([time,rows])=>{const direct=nearby(rows,point,height,1.5).find(x=>!finite(height)||x.dh<=120);return {time,temperature:direct?.r.values.temp2??interpolate(rows,point,height,'temp2'),gust:direct?.r.values.gust??interpolate(rows,point,height,'gust')};}).filter(r=>finite(r.temperature));
  memo.set(key,out);if(memo.size>24)memo.delete(memo.keys().next().value);return out;
 }
+// Daily extrema require genuinely local evidence. A spatial analysis from
+// five distant SYNOP sites is useful context, but cannot establish an exact
+// daily maximum in a valley with shallow inversion fog.
+function localTemperatureSeries(point,height,start,end){
+ if(!surface||!point||!point.every(finite)||nowInvalid(start,end))return [];
+ const bins=new Map();
+ for(const {r,d,dh} of nearby(surface.rows,point,height,12)){
+  const time=r.time*1000;
+  if(time<start||time>end||!finite(r.values.temp2))continue;
+  if(!bins.has(time))bins.set(time,[]);
+  bins.get(time).push({r,d,dh});
+ }
+ return [...bins].sort((a,b)=>a[0]-b[0]).flatMap(([time,rows])=>{
+  const direct=rows.find(q=>q.d<=1.5&&(!finite(height)||q.dh<=120));
+  if(direct)return [{time,temperature:direct.r.values.temp2,kind:'direct',source:'DWD SYNOP · örtliche Station '+direct.r.name}];
+  const close=rows.filter(q=>q.d<=10&&(!finite(height)||q.dh<=120)).sort((a,b)=>a.d-b.d);
+  if(close.length<2||close[0].d>5||Math.max(...close.slice(0,4).map(q=>q.r.values.temp2))-Math.min(...close.slice(0,4).map(q=>q.r.values.temp2))>2.5)return [];
+  const temperature=interpolate(close.map(q=>q.r),point,height,'temp2');
+  return finite(temperature)?[{time,temperature,kind:'estimate',source:'DWD SYNOP · eng begrenzte lokale Schätzung'}]:[];
+ });
+}
+function nowInvalid(start,end){return !finite(start)||!finite(end)||end<start;}
 function temperatureAt(point,height,time){
  const a=series(point,height,time-20*MIN,time);return a.at(-1)?.temperature??NaN;
 }
@@ -129,6 +151,6 @@ function diagnostics(now=Date.now()){
  }));
  return {lastCheckedAt:lastCheck||null,pending:!!request,sources};
 }
-const api={refresh,diagnostics,current,phaseAt,series,temperatureAt,gridField,gridValue,mapField,mapValue,cloudField,sampleField,analysisPacket,satellitePacket,fogPotential,fogAt,fogStations,stationFog,observedIntervals,accumulation,combineDayTemperature,interpolate,latestRows,surfacePacket,radarPacket,cellAmount,get revision(){return revision},get surface(){return surface},get radar(){return radar}};
+const api={refresh,diagnostics,current,phaseAt,series,localTemperatureSeries,temperatureAt,gridField,gridValue,mapField,mapValue,cloudField,sampleField,analysisPacket,satellitePacket,fogPotential,fogAt,fogStations,stationFog,observedIntervals,accumulation,combineDayTemperature,interpolate,latestRows,surfacePacket,radarPacket,cellAmount,get revision(){return revision},get surface(){return surface},get radar(){return radar}};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.WeatherObservation=api;
 })(globalThis);
