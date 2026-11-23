@@ -4,12 +4,12 @@ const source=fs.readFileSync('assets/app.js','utf8'),hour=3600000;
 const now=20*hour+42*60000,point=[10,47],snow={icon:'64_schneefall_nacht',condition:'Schneefall',source:'HymecNG'},rain={icon:'11_regen_1',condition:'Regen'};
 // The next morning reaches -4, the following evening -5. The raw six-hour
 // model extrema intentionally differ from the hourly endpoints.
-const temp=t=>t===21*hour?0:t>=31*hour&&t<=33*hour?-4:t>=34*hour&&t<=42*hour?1:t>=43*hour&&t<=48*hour?-5:2;
+const temp=t=>t===21*hour?0:t>=27*hour&&t<=30*hour?-4:t>=34*hour&&t<=42*hour?1:t>=49*hour&&t<=54*hour?-5:2;
 const data={model:'ICON-D2',run:'1970-01-01T00:00:00Z'};
 const frameAt=(d,p,time)=>({d,point:p,time,values:{temp2:temp(time)}});
 const frameVal=(f,id)=>f?.values?.[id]??NaN;
 const forecastPeriod=(p,start,n,end)=>({start,end,duration:(end-start)/hour,step:1,data,model:data.model,rows:[frameAt(data,p,start),frameAt(data,p,end)],rain:0,cloud:0,originalLo:-12,originalHi:12,originalMean:0,nativeIntervals:[],intervals:[],weather:rain});
-const context=vm.createContext({HOUR_MS:hour,frameAt,frameVal,forecastPeriod,consensusPeriod:forecastPeriod,radarForecastRows:()=>[],radarNowcastData:null,forecastIcon:()=>rain,frameWeather:()=>rain,isNightAt:()=>true,periodNewSnow:()=>0,periodNewSnowBounds:()=>[0,0],dailyWeatherFrame:()=>null,dailyBoundaries:(n,i)=>[0,9,12,18,24].map(h=>(h+i*24)*hour)});
+const context=vm.createContext({HOUR_MS:hour,frameAt,frameVal,forecastPeriod,consensusPeriod:forecastPeriod,radarForecastRows:()=>[],radarNowcastData:null,forecastIcon:()=>rain,frameWeather:()=>rain,isNightAt:()=>true,periodNewSnow:()=>0,periodNewSnowBounds:()=>[0,0],dailyWeatherFrame:()=>null,dailyBoundaries:(n,i)=>[0,6,12,18,24].map(h=>(h+i*24)*hour),localBoundary:(t,i,h)=>(Math.floor(t/(24*hour))+i)*24*hour+h*hour});
 const start=source.indexOf('function localPrecipitationHour('),end=source.indexOf('// Colin',start),display=source.slice(source.indexOf('const periodDisplay='),source.indexOf('function consensusPeriod('));
 assert.ok(start>=0&&end>start);
 const api=vm.runInContext(display+source.slice(start,end)+'\n({applyCurrentHour,forecastCalendarDays,hourlyForecast,upcomingNight,periodDisplay,summarizeTemperatureHours,periodHourTemperature,periodTemperature})',context);
@@ -29,12 +29,12 @@ assert.equal(api.periodDisplay(days[1].periods[0],'lo'),-4);
 assert.equal(api.periodTemperature(days[1].periods[0],0,days[1]),-4);
 assert.equal(api.periodDisplay(days[1],'lo'),-4);
 assert.equal(api.periodDisplay(days[1],'hi'),1);
-assert.equal(api.periodTemperature({mean:-2,hi:1},2,days[1]),-2,'Afternoon tile represents its mean, not the daily maximum');
-assert.equal(days[1].minHour.start,30*hour);
+assert.equal(api.periodTemperature({mean:-2,hi:1},2,days[1]),1,'Afternoon tile displays its maximum');
+assert.equal(days[1].minHour.start,26*hour);
 assert.equal(days[1].periods[3].lo,-5);
 assert.equal(api.periodDisplay(days[2],'lo'),-5);
 assert.equal(api.periodTemperature(days[2].periods[0],0,days[2]),-5);
-assert.equal(api.upcomingNight(days,now).end,33*hour);
+assert.equal(api.upcomingNight(days,now).end,30*hour);
 for(const h of hours){
  const p=days.flatMap(d=>d.periods).find(p=>p.start<=h.start&&p.end>=h.end);
  assert.equal(p.temperatureHours.find(x=>x.start===h.start).temperature,h.temperature);
@@ -44,4 +44,4 @@ const missing=api.applyCurrentHour({start:live.start,temperature:0,weather:rain}
 assert.equal(missing.temperature,0);assert.equal(missing.temperatureSample,null);
 assert.equal(missing.weather.icon,snow.icon);
 assert.ok(Number.isNaN(api.summarizeTemperatureHours([{temperature:-1},{temperature:NaN}]).lo));
-console.log('PASS: shared current/hourly values; night through 09:00; daytime maximum; evening cooling belongs to following night; missing data stays marked.');
+console.log('PASS: shared current/hourly values; night through 06:00; daytime maximum; morning 09:00 and evening 21:00; evening cooling belongs to following night; missing data stays marked.');
