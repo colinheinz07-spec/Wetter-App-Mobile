@@ -33,5 +33,15 @@ const oldFetch=global.fetch;global.fetch=async url=>new Response(JSON.stringify(
  const c=obs.accumulation([10,47],(t-900)*1000,t*1000);assert.equal(c.sum,5.5);assert.equal(c.complete,false);
  const extrema=obs.combineDayTemperature([{time:now-3600000,temperature:3}],[{start:now-7200000,end:now-3600000,temperature:5},{start:now,end:now+3600000,temperature:2}],now);
  assert.equal(extrema.hi,3);assert.equal(extrema.lo,2);assert.equal(extrema.maxHour.observed,true);
+
+ const status=obs.diagnostics(now);
+ assert.equal(status.sources.analysis.loaded,true);
+ assert.equal(status.sources.satellite.loaded,true);
+ assert.equal(status.sources.analysis.error,null);
+ global.fetch=async url=>url.includes('satellite-cloud')?new Response('unavailable',{status:503}):new Response(JSON.stringify(url.includes('analysis-map')?analysis:url.includes('surface')?surface:radar));
+ await obs.refresh(null,true);
+ const failed=obs.diagnostics(now);
+ assert.match(failed.sources.satellite.error.message,/HTTP 503/,'failed imports must be diagnosable');
+ assert.equal(failed.sources.satellite.loaded,true,'last validated snapshot is retained on fetch failure');
  console.log('PASS: direct near-station snowfall and frost, height checks, missing cells, disjoint RADOLAN intervals, actual high replaces expired forecast');
  }finally{global.fetch=oldFetch;}})().catch(e=>{console.error(e);process.exitCode=1});
