@@ -255,6 +255,22 @@ def build(now,models,ends,watch=False):
                 chosen[valid]=values[valid]
             packed=np.where(np.isfinite(chosen)&(np.abs(chosen)<3276),np.rint(chosen*10),-32768).astype('<i2')
             metrics[kind]=pack(packed)
+        # Model spread, not a calibrated probability interval. Retain all
+        # independent models with a valid snow phase and quantified snowfall.
+        # This avoids a single rounded "0 cm" despite a snow signal.
+        snow_members=[]
+        for model,row in priority:
+            snow_cm=fresh_snow_cm(model['fields'],end)
+            qualified=(row['snow']>0)&(row['snow']<255)&np.isfinite(snow_cm)&(snow_cm>=0)
+            snow_members.append(np.where(qualified,snow_cm,np.nan))
+        snow_stack=np.stack(snow_members) if snow_members else np.empty((0,N))
+        snow_valid=np.isfinite(snow_stack)
+        count=snow_valid.sum(axis=0) if len(snow_stack) else np.zeros(N,dtype=int)
+        snow_lower=np.where(count>0,np.min(np.where(snow_valid,snow_stack,np.inf),axis=0),np.nan) if len(snow_stack) else np.full(N,np.nan)
+        snow_upper=np.where(count>0,np.max(np.where(snow_valid,snow_stack,-np.inf),axis=0),np.nan) if len(snow_stack) else np.full(N,np.nan)
+        for key,values in [('snowMin',snow_lower),('snowMax',snow_upper)]:
+            packed=np.where(np.isfinite(values)&(values>=0)&(values<3276),np.rint(values*10),-32768).astype('<i2')
+            metrics[key]=pack(packed)
         periods.append(dict(start=end-10800,end=end,layers=layers,metrics=metrics,metricVersion=2))
     grid=dict(GRID,step=.04,nx=241,ny=206) if watch else GRID
     return dict(schema=1,generated=now,grid=grid,models=[{k:m[k] for k in ('model','run','step')} for m in models],periods=periods)
