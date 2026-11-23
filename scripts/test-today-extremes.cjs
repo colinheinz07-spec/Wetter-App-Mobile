@@ -11,6 +11,7 @@ const observed=[
 ];
 const ctx=vm.createContext({WeatherObservation:{
  series:(p,height,a,b)=>observed.filter(r=>r.time>=a&&r.time<=b),
+ localTemperatureSeries:(p,height,a,b)=>observed.filter(r=>r.time>=a&&r.time<=b),
  combineDayTemperature:observations.combineDayTemperature
 },HOUR_MS:3600000,Math,Number});
 vm.runInContext(source.slice(start,end),ctx);
@@ -31,7 +32,7 @@ assert.equal(finished.maxHour?.start,Date.parse('2026-11-23T13:45:00Z'),'observe
 const afternoon=ext(Date.parse('2026-11-23T14:30:00Z'));
 assert.equal(afternoon.hi,1,"only remaining 09-18 forecast can influence today\'s provisional maximum");
 assert.equal(afternoon.futureCount,1);
-const withLive=ext(Date.parse('2026-11-23T14:30:00Z'),{temperature:{kind:'analysis',value:1.5,time:Date.parse('2026-11-23T14:15:00Z')}});
+const withLive=ext(Date.parse('2026-11-23T14:30:00Z'),{temperature:{kind:'analysis',value:1.5,time:Date.parse('2026-11-23T14:15:00Z'),source:'DWD ICON-D2-RUC · Originalzelle'}});
 assert.equal(withLive.hi,1.5,'a verified ongoing daytime +0h analysis can update maximum');
 // An observed maximum from the earlier part of the calendar day still counts,
 // even if the daytime period from 09 to 18 was colder.
