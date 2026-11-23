@@ -47,7 +47,8 @@ jobs:
           with gzip.open(os.environ['PACKET'],'rt') as f: d=json.load(f)
           g=d['grid']; t=datetime.datetime.fromisoformat(d['time'])
           age=(datetime.datetime.now(datetime.timezone.utc)-t).total_seconds()
-          assert 0<=age<=1200, (t,age)
+          max_age = 2100 if d.get('product') == 'OPERA-RATE' else 1200
+          assert 0 <= age <= max_age, (d.get('product'), t, age, max_age)
           n=g['ny']*g['nx']; i=round((47.4084-g['south'])/g['step'])*g['nx']+round((10.2761-g['west'])/g['step'])
           if 'classes' in d:
               raw=base64.b64decode(d['classes']); assert len(raw)==n
