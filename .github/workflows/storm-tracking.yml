@@ -1,5 +1,6 @@
 name: Mobile live storm tracking and official warnings
 on:
+  workflow_call:
   workflow_dispatch:
   push:
     branches: [main]
