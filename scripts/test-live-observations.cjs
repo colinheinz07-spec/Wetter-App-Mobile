@@ -47,6 +47,21 @@ assert.equal(ev('liveSample("temp2",{...frame,time:now+60000},[9,50],now).kind')
 assert.equal(ev('liveSample("temp2",frame,[9,50],now).kind'),'missing','no unrelated cached location, forecast or station');
 assert.ok(Number.isNaN(ev('liveSample("temp2",frame,[9,50],now).value')));
 assert.match(ev('liveSample("temp2",frame,[9,50],now).source'),/Keine frische Ortsanalyse/);
+
+ctx.WeatherObservation={
+ mapField:(id)=>['temp2','dew','rh2','wind','winddir'].includes(id)?{kind:'analysis',time:now-15*60000,stale:false,id}:null,
+ sampleField:(field,p)=>p?.[0]===9?field.id==='temp2'?-1.5:field.id==='dew'?-1.7:field.id==='rh2'?97:field.id==='winddir'?140:8:NaN
+};
+assert.equal(ev('liveSample("temp2",frame,[9,50],now).value'),-1.5,'area analysis fills missing native tile when genuinely fresh');
+assert.equal(ev('liveSample("wind",frame,[9,50],now).value'),8,'wind falls back to the matching area analysis');
+assert.equal(ev('liveSample("gust",frame,[9,50],now).kind'),'missing','unavailable gust must not be invented');
+assert.match(ev('liveSample("temp2",frame,[9,50],now).source'),/Flächenanalyse.*keine Messung/);
+ctx.WeatherObservation.mapField=()=>({kind:'analysis',time:now-91*60000,stale:false,id:'temp2'});
+assert.equal(ev('liveSample("temp2",frame,[9,50],now).kind'),'missing','91-minute-old area values cannot masquerade as live weather');
+ctx.WeatherObservation.mapField=()=>({kind:'observation',time:now-1000,stale:false,id:'temp2'});
+assert.equal(ev('liveSample("temp2",frame,[9,50],now).kind'),'missing','station interpolation is not a model +0h analysis');
+delete ctx.WeatherObservation;
+
 ev(`const evening=Date.parse('2026-11-22T16:56:00Z'),start=Date.parse('2026-11-22T16:00:00Z'),p=[9,50],
  d={model:'ICON-D2',run:new Date(start).toISOString(),generated:new Date(start+20*60000).toISOString(),hours:[0,1],samples:{0:{temp2:3,wind:5.8,gust:14,rh2:82.5,cloud:100,winddir:350},1:{temp2:2,wind:6.2,gust:11.5,rh2:84,cloud:50,winddir:10}}},
  prior={d,point:p,hour:0,time:start},weatherNow=liveLocalWeather(prior,p,evening);`);
