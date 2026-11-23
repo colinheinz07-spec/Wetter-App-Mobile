@@ -5,8 +5,6 @@ on:
   push:
     branches: [main]
     paths: ['scripts/ingest-storm-tracks.py', '.github/workflows/storm-tracking.yml']
-  schedule:
-    - cron: '2-57/5 * * * *'
 permissions:
   contents: write
 concurrency:
