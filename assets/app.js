@@ -1947,11 +1947,24 @@ function liveSample(id,f,point,now,initial=liveInitialState(f,point,now)){
  }
  return liveAreaAnalysisFallback(id,point,now)||{value:NaN,kind:'missing',source:'Keine frische Ortsanalyse · Vorhersage separat'};
 }
+// A missing dewpoint may be diagnosed from a co-located temperature/RH
+// analysis. Never combine different times or different source cells.
+function derivedDewpoint(t,rh){
+ if(!Number.isFinite(t)||!Number.isFinite(rh)||t< -60||t>60||rh<1||rh>100)return NaN;
+ const gamma=Math.log(rh/100)+17.62*t/(243.12+t);
+ const dew=243.12*gamma/(17.62-gamma);
+ return Number.isFinite(dew)&&dew<=t+.2?dew:NaN;
+}
 function liveLocalWeather(f,point,now){
  restoreLocalAnalysis(point,now);
  const initial=liveInitialState(f,point,now);
  const observed=typeof WeatherObservation!=='undefined'?WeatherObservation.current(point,observationHeight(point),now):null;
- return Object.fromEntries(liveFields.map(id=>[id,observed?.[id]||liveSample(id,f,point,now,initial)]));
+ const values=Object.fromEntries(liveFields.map(id=>[id,observed?.[id]||liveSample(id,f,point,now,initial)]));
+ if(!Number.isFinite(values.dew?.value)&&liveCompatible(values.temp2,values.rh2)){
+  const dew=derivedDewpoint(values.temp2.value,values.rh2.value);
+  if(Number.isFinite(dew))values.dew={value:dew,kind:'estimate',time:values.temp2.time,cell:values.temp2.cell,analysisId:values.temp2.analysisId,source:'Taupunkt aus zeitgleicher Orts-Temperatur und relativer Feuchte berechnet (Magnus-Näherung, keine direkte Messung)'};
+ }
+ return values;
 }
 function observationHeight(point){return point?(localHeights.get(pointKey(point))??(typeof warningElevation==='function'?warningElevation(point):NaN)):NaN;}
 function refreshObservations(force=false){if(typeof WeatherObservation==='undefined')return;return WeatherObservation.refresh(()=>{if(activePage==='weather')refreshPointUI();if(activePage==='warnings')renderLocalWarnings();radarRevision++;scheduleMap()},force);}
@@ -2865,8 +2878,22 @@ function warningElevation(point){if(!point)return NaN;const g=offlineTerrain();i
 const warningColor=level=>['','#d9b443','#f4a13f','#ed654e','#cf3b48','#af70ea'][level];
 function periodWarningBadge(ws,compact=false){const w=ws[0];if(!w)return '';return '<span class="'+(compact?'day-alert':'period-risk')+'" style="color:'+warningColor(w.level)+'" title="'+w.type+' · L'+w.level+'">'+(w.level>=2?ui('alert',compact?14:13):'')+(compact?'':' L'+w.level)+'</span>'}
 const warningTime=(a,b)=>localTime(a,{weekday:'short',hour:'2-digit',minute:'2-digit'})+' – '+localTime(b,{weekday:'short',hour:'2-digit',minute:'2-digit'});
-function warningLine(w){return '<div class="warning-window-row"><b style="color:'+warningColor(w.level)+'">'+(w.level>=2?ui('alert',16):'')+' '+w.type+' · L'+w.level+' '+warningNames[w.level]+'</b><p>'+warningTime(w.start,w.end)+' · Ortszeit · '+(w.state==='observed'?'Aktuell beobachtet':w.state==='analysis'?'Aktuelle modellgestützte Analyse':w.state==='risk'?(w.type==='Nebelpotenzial'?'Nebelpotenzial · nicht bestätigt':'Gefahrenpotenzial · nicht beobachtet'):'Warnprognose')+'</p><p>'+(Number.isFinite(w.value)?localFormat(w.value)+' '+w.unit+(['Starkregen','Dauerregen'].includes(w.type)?' / '+w.period+' h · '+warningTime(w.peakStart,w.peakEnd):''):w.state==='observed'?'Beobachtung':w.note?'Modellsignal':'Modell-Wettercode; Begleiterscheinungen nicht vollständig bewertbar')+' · '+w.models.join(' / ')+'</p>'+(w.note?'<p>'+w.note+'</p>':'')+(w.exceptionalCandidate?'<p>Außergewöhnlicher Modellwert · Level 5 erst nach zusätzlicher Bestätigung.</p>':'')+'</div>'}
-function homeWarnings(ws){if(!ws.length)return '';const w=ws[0],active=ws.filter(x=>x.state==='observed').map(x=>x.type);return '<button class="warning" id="go-local-warning" type="button">'+(w.level>=2?ui('alert',25):'')+'<div><b>'+w.type+' · L'+w.level+' '+warningNames[w.level]+'</b><div class="warning-window">'+warningTime(w.start,w.end)+'</div><p>'+ (active.length?'Aktuell beobachtet: '+[...new Set(active)].join(' · ')+' · ':'')+'Ortsbezogene Warnhinweise · '+ws.length+' Zeitfenster</p></div>'+ui('chevron',18)+'</button>'}
+function warningLine(w){
+ const observed=w.state==='observed';
+ const state=observed?'Aktuell beobachtet':w.state==='analysis'?'Modellgestützte Analyse':w.state==='risk'?(w.type==='Nebelpotenzial'?'Nebelpotenzial · nicht bestätigt':'Gefahrenpotenzial · nicht beobachtet'):'Warnprognose';
+ const value=w.type==='Schneefall'&&w.range?'Möglicher Neuschnee: '+snowfallText(w.range):
+  w.type==='Schneefall'?'Schneefallsignal · Neuschneemenge unklar':
+  Number.isFinite(w.value)?localFormat(w.value)+' '+w.unit+(['Starkregen','Dauerregen'].includes(w.type)?' / '+w.period+' h · '+warningTime(w.peakStart,w.peakEnd):''):
+  observed?'Beobachtung':w.note?'Modellsignal':'Modell-Wettercode; Begleiterscheinungen nicht vollständig bewertbar';
+ return '<div class="warning-window-row"><b style="color:'+warningColor(w.level)+'">'+(w.level>=2?ui('alert',16):'')+' '+w.type+' · L'+w.level+' '+warningNames[w.level]+'</b><p>'+warningTime(w.start,w.end)+' · Ortszeit · '+state+'</p><p>'+value+' · '+w.models.join(' / ')+'</p>'+(w.note?'<p>'+w.note+'</p>':'')+(w.exceptionalCandidate?'<p>Außergewöhnlicher Modellwert · Level 5 erst nach zusätzlicher Bestätigung.</p>':'')+'</div>';
+}
+function homeWarnings(ws){
+ if(!ws.length)return '';
+ const w=ws[0],active=ws.filter(x=>x.state==='observed').map(x=>x.type);
+ const risks=[...new Set(ws.filter(x=>x.start<=Date.now()+6*HOUR_MS&&x.end>=Date.now()).map(x=>x.type))].slice(0,4);
+ const overview=risks.length?' · '+risks.join(' · '):'';
+ return '<button class="warning" id="go-local-warning" type="button">'+(w.level>=2?ui('alert',25):'')+'<div><b>'+w.type+' · L'+w.level+' '+warningNames[w.level]+'</b><div class="warning-window">'+warningTime(w.start,w.end)+'</div><p>'+(active.length?'Aktuell beobachtet: '+[...new Set(active)].join(' · ')+' · ':'')+'Ortsbezogene Warnhinweise · '+ws.length+' Zeitfenster'+overview+'</p></div>'+ui('chevron',18)+'</button>';
+}
 function renderLocalWarnings(days=null,ws=null){refreshObservations();const point=homeLocationPoint(location),now=Date.now(),elevation=warningElevation(point);days??=forecastCalendarDays(point,now);ws??=localWarnings(days,now,elevation,point);const node=el('local-warning-list');node.innerHTML='<h2>Ortsbezogene Warnhinweise</h2><p></p><p class="small muted">'+(Number.isFinite(elevation)?'Grobe Geländehöhe: '+Math.round(elevation)+' m · Höhenstufe vorläufig.':'Geländehöhe unbekannt · niedrigere Windschwellen vorläufig.')+'</p><div class="window-list">'+(ws.length?ws.map(warningLine).join(''):'<p>Keine Schwellenüberschreitung in den verfügbaren Beobachtungs- und Modellwerten. Keine Entwarnung.</p>')+'</div><p class="small muted">Basisstufen: Frost, Hitze, Wind, Nebel, Stark-/Dauerregen, Gewitter- und Glättepotenzial sowie gefrierende Niederschläge. Veraltete Modellläufe werden nicht als aktive Warnung gewertet. Neuschnee, Eisansatz, Hagelgröße, Tornado, Verwehungen, Tauwetter, Hochwasser und Impact-Modifikatoren werden ohne validierte Eingangsdaten nicht automatisch eingestuft. Fehlende Werte bedeuten nicht Gefahrfreiheit.</p>';node.querySelector('p').textContent=location.name+' · aktuell und kommende 48 Stunden · keine amtlichen Warnungen';}
 // Present precipitation detection and phase separately. Reflectivity/rate
 // alone cannot identify precipitation type at the ground.
