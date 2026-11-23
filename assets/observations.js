@@ -3,6 +3,8 @@
 'use strict';
 const H=3600000,MIN=60000,URL='https://raw.githubusercontent.com/colinheinz07-spec/Wetter-App-Mobile/';
 let surface=null,radar=null,analysis=null,satellite=null,revision=0,lastCheck=0,request=null,memo=new Map(),grids=new Map(),mapGrids=new Map(),cloudGrid=null;
+const loadErrors={};
+const sourceNames=['surface','radar','analysis','satellite'];
 const fields=['temp2','dew','rh2','wind','winddir','slp','cloud','visibility','gust'];
 const finite=Number.isFinite;
 function surfacePacket(d,now){
@@ -117,8 +119,16 @@ async function fetchPacket(branch,file,decode){const r=await fetch(URL+branch+'/
 function refresh(onChange,force=false){
  if(request)return request;if(!force&&Date.now()-lastCheck<2*MIN)return;lastCheck=Date.now();
  const accept=(kind,d)=>{const old={surface,radar,analysis,satellite}[kind];if(old&&old.generated>=d.generated)return;if(kind==='surface'){surface=d;grids.clear();}else if(kind==='radar')radar=d;else if(kind==='analysis'){analysis=d;mapGrids.clear();}else{satellite=d;cloudGrid=null;}revision++;memo.clear();onChange?.();};
- request=Promise.allSettled([fetchPacket('mobile-observed-surface','surface-observations.json.gz',surfacePacket).then(d=>accept('surface',d)),fetchPacket('mobile-radar-history','radar-history.json.gz',radarPacket).then(d=>accept('radar',d)),fetchPacket('mobile-live-data','analysis-map.json.gz',analysisPacket).then(d=>accept('analysis',d)),fetchPacket('mobile-satellite-cloud','satellite-cloud.json.gz',satellitePacket).then(d=>accept('satellite',d))]).finally(()=>{request=null});return request;
+ request=Promise.allSettled([fetchPacket('mobile-observed-surface','surface-observations.json.gz',surfacePacket).then(d=>accept('surface',d)),fetchPacket('mobile-radar-history','radar-history.json.gz',radarPacket).then(d=>accept('radar',d)),fetchPacket('mobile-live-data','analysis-map.json.gz',analysisPacket).then(d=>accept('analysis',d)),fetchPacket('mobile-satellite-cloud','satellite-cloud.json.gz',satellitePacket).then(d=>accept('satellite',d))]).then(results=>{for(let i=0;i<results.length;i++){const r=results[i],name=sourceNames[i];if(r.status==='fulfilled')delete loadErrors[name];else loadErrors[name]={at:Date.now(),message:String(r.reason?.message||r.reason).slice(0,180)};}}).finally(()=>{request=null});return request;
 }
-const api={refresh,current,phaseAt,series,temperatureAt,gridField,gridValue,mapField,mapValue,cloudField,sampleField,analysisPacket,satellitePacket,fogPotential,fogAt,fogStations,stationFog,observedIntervals,accumulation,combineDayTemperature,interpolate,latestRows,surfacePacket,radarPacket,cellAmount,get revision(){return revision},get surface(){return surface},get radar(){return radar}};
+function diagnostics(now=Date.now()){
+ const packets={surface,radar,analysis,satellite},time={surface:surface?.generated,radar:radar?.generated,analysis:analysis?.run,satellite:satellite?.time};
+ const sources=Object.fromEntries(sourceNames.map(name=>{
+  const t=Number.isFinite(time[name])?time[name]*1000:null;
+  return [name,{loaded:!!packets[name],dataTime:t,ageMinutes:t===null?null:Math.max(0,Math.round((now-t)/60000)),error:loadErrors[name]||null}];
+ }));
+ return {lastCheckedAt:lastCheck||null,pending:!!request,sources};
+}
+const api={refresh,diagnostics,current,phaseAt,series,temperatureAt,gridField,gridValue,mapField,mapValue,cloudField,sampleField,analysisPacket,satellitePacket,fogPotential,fogAt,fogStations,stationFog,observedIntervals,accumulation,combineDayTemperature,interpolate,latestRows,surfacePacket,radarPacket,cellAmount,get revision(){return revision},get surface(){return surface},get radar(){return radar}};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.WeatherObservation=api;
 })(globalThis);
