@@ -6,7 +6,7 @@ const config = JSON.parse(readFileSync(new URL("../cloudflare/wrangler.jsonc", i
 assert.deepEqual(config.triggers.crons, ["*/5 * * * *"]);
 assert.equal(config.name, "wetter-live-updater");
 
-const expected = ["mobile-radar.yml", "mobile-observations.yml", "mobile-live.yml", "mobile-warnings.yml"];
+const expected = ["mobile-radar.yml", "mobile-observations.yml", "mobile-live.yml", "mobile-warnings.yml", "storm-tracking.yml", "doppler-radar.yml"];
 const token = "fixture-not-real";
 let posts = [], checks = [];
 const now = Date.now();
@@ -48,7 +48,7 @@ try {
   fixture();
   await worker.scheduled({}, { GITHUB_TOKEN: token });
   assert.deepEqual(new Set(posts), new Set(expected));
-  assert.equal(checks.length, 4);
+  assert.equal(checks.length, expected.length);
   const healthy = await worker.fetch(new Request("https://example.test/health"), { GITHUB_TOKEN: token });
   assert.equal(healthy.status, 200);
   const health = await healthy.json();
@@ -57,7 +57,7 @@ try {
 
   fixture({ running: "mobile-live.yml", recent: "mobile-radar.yml" });
   await worker.scheduled({}, { GITHUB_TOKEN: token });
-  assert.deepEqual(new Set(posts), new Set(["mobile-observations.yml", "mobile-warnings.yml"]));
+  assert.deepEqual(new Set(posts), new Set(expected.filter(x => x !== "mobile-live.yml" && x !== "mobile-radar.yml")));
 
   fixture({ fail: "mobile-radar.yml" });
   await assert.rejects(() => worker.scheduled({}, { GITHUB_TOKEN: token }), /dispatch errors/);
