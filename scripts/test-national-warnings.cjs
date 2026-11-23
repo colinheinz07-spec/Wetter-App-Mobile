@@ -22,7 +22,15 @@ const local=(start,temps)=>{const p=smallPeriod(start,11,0),b=Buffer.alloc(12);t
 const localEvent=w.groupWarnings([local(t,[-1,-15,0,-12,0,0]),local(t+10800,[-3,-14,0,-11,0,0])],smallGrid,'frost',0,'active')[0];
 assert.match(localEvent.summary,/-3 bis -1 °C/);assert.doesNotMatch(localEvent.summary,/-15|-12/);
 const amountPeriod=(start,k,v,version=2)=>{const b=Buffer.alloc(12);for(let i=0;i<6;i++)b.writeInt16LE(v*10,i*2);return {start,end:start+10800,metricVersion:version,decoded:{[k]:Uint8Array.from([11,11,0,0,0,0])},metricValues:{[k]:b.toString('latin1')}}};
-assert.match(w.groupWarnings([amountPeriod(t,'snow',2),amountPeriod(t+10800,'snow',3)],smallGrid,'snow',0,'active')[0].summary,/5 cm im angegebenen Zeitraum/);
+const oldSnow=w.groupWarnings([amountPeriod(t,'snow',2),amountPeriod(t+10800,'snow',3)],smallGrid,'snow',0,'active')[0];
+assert.match(oldSnow.summary,/nicht ausreichend berechenbar/,'an old snapshot without uncertainty data must not claim exact snowfall');
+const modelSnow=(start,lo,hi)=>{const p=amountPeriod(start,'snow',hi);p.metricValues.snowMin=amountPeriod(start,'snowMin',lo).metricValues.snowMin;p.metricValues.snowMax=amountPeriod(start,'snowMax',hi).metricValues.snowMax;return p;};
+const rangeSnow=w.groupWarnings([modelSnow(t,1,3),modelSnow(t+10800,0,2)],smallGrid,'snow',0,'active')[0];
+assert.match(rangeSnow.summary,/1 bis 5 cm/,'fresh snow uses the sum of independent model min/max values for the exact clicked cell');
+assert.match(rangeSnow.summary,/Modellwerte/,'uncertainty range is not claimed as an observation');
+const traceSnow=w.groupWarnings([modelSnow(t,0,0)],smallGrid,'snow',0,'active')[0];
+assert.doesNotMatch(traceSnow.summary,/0 cm/,'a trace-snow warning must not report an exact zero snowfall');
+assert.match(traceSnow.summary,/kein messbarer Neuschneezuwachs/);
 assert.match(w.groupWarnings([amountPeriod(t,'rain',21),amountPeriod(t+10800,'rain',22)],smallGrid,'rain',0,'active')[0].summary,/43 l\/m²/);
 assert.doesNotMatch(w.groupWarnings([amountPeriod(t,'snow',12,1)],smallGrid,'snow',0,'active')[0].summary,/12 cm/);
 assert.match(w.groupWarnings([amountPeriod(t,'durationrain',30,1)],smallGrid,'durationrain',0,'active')[0].summary,/keine verfügbaren Modellwerte/);
