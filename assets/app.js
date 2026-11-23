@@ -2731,9 +2731,9 @@ function localWarnings(days,now,elevation=NaN,point=null){
    const amount=snowfallText(span);
    add('Schneefall',level,Math.max(now,p.start),p.end,NaN,'cm',p.duration,[p.model||'Modell'],
     'Möglicher Neuschnee '+amount+' für das angegebene Restzeitfenster (modellbasierte Spanne, keine statistische Wahrscheinlichkeit).','forecast',span);
-  }else if(signal&&!(span&&span[1]===0)){
+  }else if(signal){
    add('Schneefall',1,Math.max(now,p.start),p.end,NaN,'cm',p.duration,[p.model||'Modell'],
-    'Schneefallsignal vorhanden, aber die Neuschneemenge ist nicht belastbar berechenbar.','forecast');
+    'Schneefall möglich; Modell liefert keinen belastbar quantifizierbaren Neuschnee. Ein mit 0 cm gerundetes Signal bedeutet nicht zwangsläufig schneefrei.','forecast');
   }
  }
  if(point)for(let start=Math.floor(now/(3*HOUR_MS))*3*HOUR_MS;start<now+48*HOUR_MS;start+=3*HOUR_MS){const end=start+3*HOUR_MS,all=frostModelSignals(point,Math.max(start,now),end,now),wet=all.filter(m=>m.value<0);if(wet.length>=2&&wet.length>all.length/2){const v=wet.find(m=>m.model==='ICON-D2')?.value??wet.map(m=>m.value).sort((a,b)=>a-b)[Math.floor(wet.length/2)];add('Luftfrost',warningLevel(-v,[0,5,10,20,30]),Math.max(start,now),end,v,'°C',3,wet.map(m=>m.model),wet.length+' von '+all.length+' verfügbaren unabhängigen Modellfamilien zeigen Luftfrost.');}}
