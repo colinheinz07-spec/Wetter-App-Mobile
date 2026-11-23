@@ -34,7 +34,7 @@ vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`
  const sampleTime=now-5*60000,frame={d:{model:'ICON-D2'},time:sampleTime,values:{temp2:.1,rh2:99,cloud:99,ww:61}},radar={amount:.05,rate:.6,time:sampleTime};
  const read=(f,id)=>f?.values?.[id]??NaN;
  const live=vm.createContext({atob,frameVal:read,frameHumidity:f=>read(f,'rh2'),isNightAt:()=>false,fogCondition:()=>null,frameWeather:f=>f?{icon:'11_regen_1',condition:'Regen',source:'Modell'}:{icon:null,condition:'Wetterzustand nicht verfügbar',source:'Modell'},localTime:()=> '18:25',pointKey:p=>p.join(','),Date:TestDate,Math,Number,frame,radar,sampleTime,now});
- vm.runInContext(chunk('let radarPhaseData=','async function fetchRadarPhase')+chunk('function cloudWeather(','function frameWeather(')+chunk('function currentCloudWeather(','function liveHeroWeatherHTML')+chunk('function phaseCodeFromModel(','function localRadarPhaseDetail'),live);
+ vm.runInContext(chunk('let radarPhaseData=','async function fetchRadarPhase')+chunk('function cloudWeather(','function frameWeather(')+chunk('function currentFogWeather(','function liveHeroWeatherHTML')+chunk('function phaseCodeFromModel(','function localRadarPhaseDetail'),live);
  const check=(code,name)=>assert.equal(vm.runInContext("livePhaseWeather(frame,radar,{code:"+code+",time:sampleTime},[8,50],now).condition",live),name);
  check(7,'Schneefall');check(6,'Schneeregen');check(5,'Gefrierender Regen');check(3,'Regen');
  assert.equal(vm.runInContext("livePhaseWeather(frame,radar,null,[8,50],now).condition",live),'Niederschlag · Art nicht bestimmt');
