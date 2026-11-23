@@ -28,6 +28,9 @@ const oldFetch=global.fetch;global.fetch=async url=>new Response(JSON.stringify(
  assert.equal(obs.mapField('temp2',now).kind,'analysis');assert.equal(obs.mapValue('temp2',[10.29,47.4],now),2);assert.ok(Number.isNaN(obs.mapValue('wind',[10.29,47.42],now)));
  assert.equal(obs.sampleField(obs.cloudField(now),[10.27,47.4]),0);assert.equal(obs.sampleField(obs.cloudField(now),[10.29,47.4]),100);assert.ok(Number.isNaN(obs.sampleField(obs.cloudField(now),[10.29,47.42])));
  assert.equal(obs.cloudField(now+3600000),null);assert.equal(obs.mapField('temp2',now+7200000).stale,true);assert.equal(obs.mapField('temp2',now+10800000),null);assert.equal(obs.fogAt([10.27,47.4],806,now+7200000),null);
+ assert.ok(Math.abs(obs.dewpointFromHumidity(0,100))<.001,'saturated relative humidity yields dewpoint near air temperature');
+ assert.ok(obs.dewpointFromHumidity(2,96)>1.4,'near-saturated air yields small dewpoint spread');
+ assert.ok(Number.isNaN(obs.dewpointFromHumidity(2,110)),'invalid relative humidity is not accepted');
  assert.equal(obs.fogPotential(2,1.5,96,10),true);assert.equal(obs.fogPotential(2,0,96,10),false);assert.equal(obs.fogPotential(2,1.8,99,25),false);assert.equal(obs.fogPotential(2,NaN,99,5),false);
  assert.equal(obs.fogAt([10.27,47.4],806,now).state,'risk');assert.equal(obs.stationFog({values:{temp2:1,dew:.9,visibility:200,phase:7}}),false);assert.equal(obs.stationFog({values:{fog:1,visibility:200}}),true);assert.equal(obs.stationFog({values:{fog:1,visibility:4500}}),false);
  const a=obs.accumulation([10,47],(t-600)*1000,t*1000);assert.equal(a.sum,5.5);assert.equal(a.complete,true);
