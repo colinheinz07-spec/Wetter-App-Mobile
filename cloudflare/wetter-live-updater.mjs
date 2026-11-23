@@ -6,7 +6,9 @@ const WORKFLOWS = Object.freeze([
   "mobile-radar.yml",
   "mobile-observations.yml",
   "mobile-live.yml",
-  "mobile-warnings.yml"
+  "mobile-warnings.yml",
+  "storm-tracking.yml",
+  "doppler-radar.yml"
 ]);
 const BASE = `https://api.github.com/repos/${REPOSITORY}/actions/workflows/`;
 const ACTIVE = new Set(["queued", "in_progress", "waiting", "pending", "requested"]);
