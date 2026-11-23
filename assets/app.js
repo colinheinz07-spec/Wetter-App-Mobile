@@ -2836,7 +2836,21 @@ function homeWarnings(ws){if(!ws.length)return '';const w=ws[0],active=ws.filter
 function renderLocalWarnings(days=null,ws=null){refreshObservations();const point=homeLocationPoint(location),now=Date.now(),elevation=warningElevation(point);days??=forecastCalendarDays(point,now);ws??=localWarnings(days,now,elevation,point);const node=el('local-warning-list');node.innerHTML='<h2>Ortsbezogene Warnhinweise</h2><p></p><p class="small muted">'+(Number.isFinite(elevation)?'Grobe Geländehöhe: '+Math.round(elevation)+' m · Höhenstufe vorläufig.':'Geländehöhe unbekannt · niedrigere Windschwellen vorläufig.')+'</p><div class="window-list">'+(ws.length?ws.map(warningLine).join(''):'<p>Keine Schwellenüberschreitung in den verfügbaren Beobachtungs- und Modellwerten. Keine Entwarnung.</p>')+'</div><p class="small muted">Basisstufen: Frost, Hitze, Wind, Nebel, Stark-/Dauerregen, Gewitter- und Glättepotenzial sowie gefrierende Niederschläge. Veraltete Modellläufe werden nicht als aktive Warnung gewertet. Neuschnee, Eisansatz, Hagelgröße, Tornado, Verwehungen, Tauwetter, Hochwasser und Impact-Modifikatoren werden ohne validierte Eingangsdaten nicht automatisch eingestuft. Fehlende Werte bedeuten nicht Gefahrfreiheit.</p>';node.querySelector('p').textContent=location.name+' · aktuell und kommende 48 Stunden · keine amtlichen Warnungen';}
 // Present precipitation detection and phase separately. Reflectivity/rate
 // alone cannot identify precipitation type at the ground.
+// Fog is a near-ground visibility phenomenon: a clear cloud field does not
+// disprove it. Direct visibility observations and model risk are distinct.
+function currentFogWeather(point,now){
+ const fog=point&&typeof WeatherObservation!=='undefined'?WeatherObservation.fogAt(point,observationHeight(point),now):null;
+ if(!fog||!Number.isFinite(fog.time)||fog.time>now||now-fog.time>60*60000)return null;
+ if(fog.state==='observed'){
+  const dense=Number.isFinite(fog.visibility)&&fog.visibility<200;
+  return {icon:dense?'44_dichter_nebel':'43_nebel',condition:dense?'Dichter Nebel':'Nebel',source:fog.source+(Number.isFinite(fog.visibility)?' · Sicht '+Math.round(fog.visibility)+' m':'')+' · bodennah beobachtet'};
+ }
+ if(fog.state==='risk')return {icon:'43_nebel',condition:'Nebel möglich · nicht bestätigt',source:fog.source+' · Sichtweite nicht gemessen'};
+ return null;
+}
 function currentCloudWeather(f,point,now,live=null){
+ const fog=currentFogWeather(point,now);
+ if(fog)return fog;
  const sample=live?.cloud,cloud=sample?.value,night=isNightAt(now,point);
  if(!Number.isFinite(cloud))return {icon:null,condition:'Bewölkung nicht verfügbar',source:'Keine aktuelle Beobachtungsanalyse'};
  return {...cloudWeather(cloud,night),source:sample.source||'Bewölkungsanalyse'};
@@ -2855,7 +2869,7 @@ function livePhaseWeather(f,radar,phase,point,now,live=null){
   if(phases[phase.code])return make(...phases[phase.code],source);
  }
  if(radar&&!wet)return {...currentCloudWeather(f,point,now,live),source:(radar.source||'DWD RY')+' · kein Niederschlag im Radar'};
- if(!wet)return make(null,'Wetterzustand nicht aktuell bestätigt','Keine aktuelle Radar- oder Bodenbestätigung');
+ if(!wet)return currentFogWeather(point,now)||make(null,'Wetterzustand nicht aktuell bestätigt','Keine aktuelle Radar- oder Bodenbestätigung');
  // An observed echo with unknown phase remains unknown. Never paint a
  // forecast-derived rain/sleet/snow phase as a current observation.
  return make(null,'Niederschlag · Art nicht bestimmt',(radar.source||'Radar')+' · keine sichere Niederschlagsart');
