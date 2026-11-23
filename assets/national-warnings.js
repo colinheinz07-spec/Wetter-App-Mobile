@@ -71,7 +71,7 @@ function cellsForPoint(g,p){const x=Math.round((p[0]-g.west)/g.step),y=Math.roun
 // Warning contours span connected areas; numeric details must NEVER aggregate
 // unrelated cells in that contour. Sample the clicked cell only.
 function metricAt(period,kind,n){
- if((kind==='snow'||kind==='durationrain'||kind==='stormhour'||kind==='iceCause')&&period.metricVersion!==2)return NaN;
+ if((['snow','snowMin','snowMax','durationrain','stormhour','iceCause'].includes(kind))&&period.metricVersion!==2)return NaN;
  const m=period.metricValues?.[kind];if(!m||n<0||n*2+1>=m.length)return NaN;
  const v=(m.charCodeAt(n*2)|(m.charCodeAt(n*2+1)<<8))<<16>>16;return v===-32768?NaN:v/10;
 }
@@ -81,7 +81,10 @@ function areaStats(period,g,kind,n,stage){
  const gust=signal('stormwind')?metricAt(period,'stormwind',n):NaN;
  const hour=signal('stormrain')?metricAt(period,'stormhour',n):NaN;
  const rain3=signal('stormrain')?metricAt(period,'stormrain',n):NaN;
+ const snowMin=kind==='snow'?metricAt(period,'snowMin',n):NaN,snowMax=kind==='snow'?metricAt(period,'snowMax',n):NaN;
+ const snowKnown=Number.isFinite(snowMin)&&Number.isFinite(snowMax)&&snowMin>=0&&snowMax>=snowMin;
  return {lo:known?v:Infinity,hi:known?v:-Infinity,sum:known?v:0,known:+known,count:1,
+  snowLo:snowKnown?snowMin:0,snowHi:snowKnown?snowMax:0,snowKnown:+snowKnown,
   iceCause:metricAt(period,'iceCause',n)||0,gust:Number.isFinite(gust)?gust:-Infinity,
   hour:Number.isFinite(hour)?hour:-Infinity,rain3:Number.isFinite(rain3)?rain3:-Infinity,
   hail:signal('hail'),windRisk:signal('stormwind'),rainRisk:signal('stormrain')};
@@ -99,6 +102,15 @@ function eventSummary(kind,stats,stage){
   if(stats.rainRisk)hints.push('Starkregen'+(Number.isFinite(stats.hour)?' bis '+stats.hour.toLocaleString('de-DE')+' l/m² in einer Stunde (Modellmaximum)':Number.isFinite(stats.rain3)?' bis '+stats.rain3.toLocaleString('de-DE')+' l/m² in 3 Stunden':''));
   return lead+(hints.length?' Begleitgefahren: '+hints.join(' · ')+'.':'');
  }
+ if(kind==='snow'){
+  if(stats.snowKnown===stats.count&&stats.snowHi>0){
+   const lower=stats.snowLo>0&&stats.snowLo<1?'unter 1':Math.floor(stats.snowLo).toLocaleString('de-DE');
+   const upper=Math.max(1,Math.ceil(stats.snowHi)).toLocaleString('de-DE');
+   return lead+' Möglicher Neuschnee: '+(lower===upper?upper+' cm':lower+' bis '+upper+' cm')+' im angegebenen Zeitraum (Spanne verfügbarer Modellwerte, keine kalibrierte Unsicherheit).';
+  }
+  if(!stats.snowKnown||stats.snowKnown<stats.count)return lead+' Schneefallsignal vorhanden, aber die Neuschneemenge ist nicht ausreichend berechenbar.';
+  return lead+' Schneefall signalisiert, aber kein messbarer Neuschneezuwachs berechnet; keine belastbare Zentimeterangabe.';
+ }
  if(!METRICS[kind])return lead;
  if(!Number.isFinite(stats.lo))return lead+' '+METRICS[kind][2]+': keine verfügbaren Modellwerte.';
  const [unit,digits,label]=METRICS[kind],factor=kind==='fog'?1000:1,num=v=>(v*factor).toLocaleString('de-DE',{maximumFractionDigits:digits});
@@ -108,7 +120,7 @@ function eventSummary(kind,stats,stage){
 }
 function groupWarnings(periods,g,kind,n,stage){
  const events=[];for(const p of periods){const c=p.decoded[kind]?.[n];if(!stageMatches(c,stage))continue;const stats=areaStats(p,g,kind,n,stage),last=events.at(-1);
- if(last&&last.end===p.start){last.end=p.end;last.code=modelLevel(c)>modelLevel(last.code)?c:last.code;const s=last.stats;last.stats={lo:Math.min(s.lo,stats.lo),hi:Math.max(s.hi,stats.hi),sum:s.sum+stats.sum,known:s.known+stats.known,count:s.count+stats.count,iceCause:s.iceCause|stats.iceCause,gust:Math.max(s.gust,stats.gust),hour:Math.max(s.hour,stats.hour),rain3:Math.max(s.rain3,stats.rain3),hail:s.hail||stats.hail,windRisk:s.windRisk||stats.windRisk,rainRisk:s.rainRisk||stats.rainRisk}}
+ if(last&&last.end===p.start){last.end=p.end;last.code=modelLevel(c)>modelLevel(last.code)?c:last.code;const s=last.stats;last.stats={lo:Math.min(s.lo,stats.lo),hi:Math.max(s.hi,stats.hi),sum:s.sum+stats.sum,known:s.known+stats.known,count:s.count+stats.count,snowLo:s.snowLo+stats.snowLo,snowHi:s.snowHi+stats.snowHi,snowKnown:s.snowKnown+stats.snowKnown,iceCause:s.iceCause|stats.iceCause,gust:Math.max(s.gust,stats.gust),hour:Math.max(s.hour,stats.hour),rain3:Math.max(s.rain3,stats.rain3),hail:s.hail||stats.hail,windRisk:s.windRisk||stats.windRisk,rainRisk:s.rainRisk||stats.rainRisk}}
  else events.push({kind,code:c,start:p.start,end:p.end,stats})}
  return events.map(e=>({...e,summary:eventSummary(kind,e.stats,stage)}));
 }
@@ -310,7 +322,7 @@ function decodeRisk(d){
  const size=d.grid.nx*d.grid.ny;
  for(const p of d.periods){p.decoded={};p.metricValues={};
   for(const k in TYPES){const raw=p.layers[k]&&atob(p.layers[k]),a=new Uint8Array(size);if(raw){for(let i=0;i<a.length;i++)a[i]=raw.charCodeAt(i)}else a.fill(255);p.decoded[k]=a}
-  for(const k of [...Object.keys(METRICS),'iceCause','stormhour']){const metric=p.metrics?.[k];if(typeof metric==='string'&&metric.length===4*Math.ceil(size*2/3))try{p.metricValues[k]=atob(metric)}catch{}}
+  for(const k of [...Object.keys(METRICS),'iceCause','stormhour','snowMin','snowMax']){const metric=p.metrics?.[k];if(typeof metric==='string'&&metric.length===4*Math.ceil(size*2/3))try{p.metricValues[k]=atob(metric)}catch{}}
  }
 }
 async function refreshWatch(force=false){
