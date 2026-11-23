@@ -106,6 +106,11 @@ function cloudField(now=Date.now()){
 }
 function sampleField(f,point){if(!f)return NaN;const g=f.grid,x=Math.round((point[0]-g.west)/g.step),y=Math.round((point[1]-g.south)/g.step);return x>=0&&x<g.nx&&y>=0&&y<g.ny?f.values[y*g.nx+x]:NaN;}
 function mapValue(id,point,now=Date.now()){return sampleField(mapField(id,now),point);}
+function dewpointFromHumidity(t,rh){
+ if(!finite(t)||!finite(rh)||t< -60||t>60||rh<1||rh>100)return NaN;
+ const gamma=Math.log(rh/100)+17.62*t/(243.12+t),v=243.12*gamma/(17.62-gamma);
+ return finite(v)&&v<=t+.2?v:NaN;
+}
 function fogPotential(t,dew,rh,wind){return [t,dew,wind].every(finite)&&t-dew>=-.5&&t-dew<=1&&wind>=0&&wind<=12&&(!finite(rh)||rh>=94);}
 function stationFog(r){const v=r.values;return v.fog===1&&(!finite(v.visibility)||v.visibility<=1000)||finite(v.visibility)&&v.visibility<=1000&&!(v.phase>=2)&&finite(v.temp2)&&finite(v.dew)&&v.temp2-v.dew<=1&&v.temp2-v.dew>=-.5;}
 function fogStations(now=Date.now()){return surface?latestRows(surface.rows,now,60*MIN).filter(stationFog):[];}
@@ -116,7 +121,14 @@ function fogAt(point,height,now=Date.now()){
  if(reported)return {state:'risk',time:reported.r.time*1000,source:'DWD SYNOP · '+reported.r.name+' · Nebel gemeldet, Messsicht über 1000 m; örtliche Nebelbänke möglich'};
  const near=surface&&nearby(latestRows(surface.rows,now,60*MIN),point,height,1.5).find(x=>(!finite(height)||x.dh<=120)&&fogPotential(x.r.values.temp2,x.r.values.dew,x.r.values.rh2,x.r.values.wind));
  if(near)return {state:'risk',time:near.r.time*1000,source:'DWD SYNOP · '+near.r.name+' · nahezu gesättigte Luft und schwacher Wind; Nebel möglich, nicht bestätigt'};
- const a=['temp2','dew','rh2','wind'].map(k=>mapField(k,now));if(a.every(f=>f?.kind==='analysis'&&!f.stale&&f.time===a[0].time)&&fogPotential(...a.map(f=>sampleField(f,point))))return {state:'risk',time:a[0].time,source:'ICON-D2-RUC · nahezu gesättigte Luft und schwacher Wind; besonders in Muldenlagen möglich, nicht beobachtet'};
+ const a=['temp2','dew','rh2','wind'].map(k=>mapField(k,now));
+ const [tf,df,rhf,wf]=a;
+ if([tf,rhf,wf].every(f=>f?.kind==='analysis'&&!f.stale&&f.time===tf.time)){
+  const t=sampleField(tf,point),rh=sampleField(rhf,point),wind=sampleField(wf,point);
+  const dew=df?.kind==='analysis'&&!df.stale&&df.time===tf.time?sampleField(df,point):NaN;
+  const d=finite(dew)?dew:dewpointFromHumidity(t,rh);
+  if(fogPotential(t,d,rh,wind))return {state:'risk',time:tf.time,source:'ICON-D2-RUC · nahezu gesättigte Luft, Taupunkt '+(finite(dew)?'modellanalysiert':'aus Temperatur und relativer Feuchte berechnet')+' und schwacher Wind; besonders in Muldenlagen möglich, nicht beobachtet'};
+ }
  return null;
 }
 function cellAmount(packet,r,point){
@@ -151,6 +163,6 @@ function diagnostics(now=Date.now()){
  }));
  return {lastCheckedAt:lastCheck||null,pending:!!request,sources};
 }
-const api={refresh,diagnostics,current,phaseAt,series,localTemperatureSeries,temperatureAt,gridField,gridValue,mapField,mapValue,cloudField,sampleField,analysisPacket,satellitePacket,fogPotential,fogAt,fogStations,stationFog,observedIntervals,accumulation,combineDayTemperature,interpolate,latestRows,surfacePacket,radarPacket,cellAmount,get revision(){return revision},get surface(){return surface},get radar(){return radar}};
+const api={refresh,diagnostics,current,phaseAt,series,localTemperatureSeries,temperatureAt,gridField,gridValue,mapField,mapValue,cloudField,sampleField,analysisPacket,satellitePacket,fogPotential,dewpointFromHumidity,fogAt,fogStations,stationFog,observedIntervals,accumulation,combineDayTemperature,interpolate,latestRows,surfacePacket,radarPacket,cellAmount,get revision(){return revision},get surface(){return surface},get radar(){return radar}};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.WeatherObservation=api;
 })(globalThis);
