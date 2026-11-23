@@ -11,6 +11,8 @@ on:
       - 'scripts/test-data-performance*.cjs'
       - 'scripts/test-live-observations.cjs'
       - 'scripts/test-live-fog-weather.cjs'
+      - 'scripts/test-local-warning-signals.cjs'
+      - 'scripts/test-national-warnings.cjs'
       - 'scripts/test-today-extremes.cjs'
       - 'scripts/test-cloudflare-updater.mjs'
       - 'cloudflare/**'
@@ -37,6 +39,8 @@ jobs:
       - run: node scripts/test-data-performance-unit.cjs
       - run: node scripts/test-live-observations.cjs
       - run: node scripts/test-live-fog-weather.cjs
+      - run: node scripts/test-local-warning-signals.cjs
+      - run: node scripts/test-national-warnings.cjs
       - run: node scripts/test-today-extremes.cjs
       - run: node scripts/test-observations.cjs
       - run: node scripts/test-radar-phase.cjs
