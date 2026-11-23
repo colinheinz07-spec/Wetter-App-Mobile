@@ -1,0 +1,8 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "wetter-live-updater",
+  "main": "wetter-live-updater.mjs",
+  "compatibility_date": "2026-11-23",
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "observability": { "enabled": true }
+}
