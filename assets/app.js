@@ -2727,7 +2727,7 @@ function localWarnings(days,now,elevation=NaN,point=null){
   const full=periodNewSnowBounds(p);
   const remainder=p.start>=now?full:p.localHours?.length?hourlySnowBoundsWindow(p.localHours,now,p.end):null;
   const span=remainder&&remainder.every(Number.isFinite)&&remainder[0]>=0&&remainder[1]>=remainder[0]?remainder:null;
-  if(!signal&&!(span?.[1]>.1))continue;
+  if(!signal)continue; // An uncertain rain-only upper bound is not evidence of snow.
   if(span?.[1]>.1){
    const level=span[0]>=20?4:span[0]>=10?3:span[0]>=5?2:1;
    const amount=snowfallText(span);
