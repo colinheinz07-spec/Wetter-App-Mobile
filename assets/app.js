@@ -2721,7 +2721,9 @@ function localWarnings(days,now,elevation=NaN,point=null){
  // new-snow amount can create a snowfall forecast. Never publish a bare 0 cm.
  for(const d of days.slice(0,2))for(const p of d.periods||[]){
   if(p.end<=now)continue;
-  const signal=/schnee/.test(p.weather?.icon||'')&&!/nebel/.test(p.weather?.icon||'');
+  const iconSnow=/schnee/.test(p.weather?.icon||'')&&!/nebel/.test(p.weather?.icon||'');
+  const verifiedSnow=p.localHours?.some(h=>Number.isFinite(h.newSnow)&&h.newSnow>.1)||p.nativeIntervals?.some(r=>newSnowInterval(r)>.1);
+  const signal=iconSnow||verifiedSnow;
   const full=periodNewSnowBounds(p);
   const remainder=p.start>=now?full:p.localHours?.length?hourlySnowBoundsWindow(p.localHours,now,p.end):null;
   const span=remainder&&remainder.every(Number.isFinite)&&remainder[0]>=0&&remainder[1]>=remainder[0]?remainder:null;
