@@ -77,5 +77,20 @@ assert np.isnan(r.peak_hour_rain(field(end,rainTotal=24),end)[0])
 period=r.build(0,[dict(model='ICON-D2',run=0,step=.02,fields=snowfields)],[end])['periods'][0]
 assert period['metricVersion']==2
 assert np.frombuffer(base64.b64decode(period['metrics']['snow']),dtype='<i2')[0]==56
+assert np.frombuffer(base64.b64decode(period['metrics']['snowMin']),dtype='<i2')[0]==56
+assert np.frombuffer(base64.b64decode(period['metrics']['snowMax']),dtype='<i2')[0]==56
+# A second, independent model with less snowfall widens the point-specific
+# possible accumulation interval; no hard-coded category endpoints.
+less_snow=dict(snowfields)
+less_snow[(end,'snowGspTotal')]=fill(2)
+less_snow[(end,'snowConTotal')]=fill(0)
+snow_models=[dict(model='ICON-D2',run=0,step=.02,fields=snowfields),dict(model='GFS',run=0,step=.25,fields=less_snow)]
+ensemble=r.build(0,snow_models,[end])['periods'][0]
+lo=np.frombuffer(base64.b64decode(ensemble['metrics']['snowMin']),dtype='<i2')[0]
+hi=np.frombuffer(base64.b64decode(ensemble['metrics']['snowMax']),dtype='<i2')[0]
+assert lo==19 and hi==56,(lo,hi)
+unknown_fields=field(end,temp2=-2,ww=71)
+unknown=r.build(0,[dict(model='ICON-D2',run=0,step=.02,fields=unknown_fields)],[end])['periods'][0]
+assert np.frombuffer(base64.b64decode(unknown['metrics']['snowMin']),dtype='<i2')[0]==-32768
 print('PASS: independent model agreement, uncertain convective signal, missing inputs, phase and own thresholds')
 
