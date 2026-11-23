@@ -1955,12 +1955,15 @@ function derivedDewpoint(t,rh){
  const dew=243.12*gamma/(17.62-gamma);
  return Number.isFinite(dew)&&dew<=t+.2?dew:NaN;
 }
+function matchingLiveSamples(a,b){
+ return !!a&&!!b&&['observation','analysis'].includes(a.kind)&&a.kind===b.kind&&Number.isFinite(a.time)&&a.time===b.time&&a.analysisId===b.analysisId&&a.cell?.[0]===b.cell?.[0]&&a.cell?.[1]===b.cell?.[1];
+}
 function liveLocalWeather(f,point,now){
  restoreLocalAnalysis(point,now);
  const initial=liveInitialState(f,point,now);
  const observed=typeof WeatherObservation!=='undefined'?WeatherObservation.current(point,observationHeight(point),now):null;
  const values=Object.fromEntries(liveFields.map(id=>[id,observed?.[id]||liveSample(id,f,point,now,initial)]));
- if(!Number.isFinite(values.dew?.value)&&liveCompatible(values.temp2,values.rh2)){
+ if(!Number.isFinite(values.dew?.value)&&matchingLiveSamples(values.temp2,values.rh2)){
   const dew=derivedDewpoint(values.temp2.value,values.rh2.value);
   if(Number.isFinite(dew))values.dew={value:dew,kind:'estimate',time:values.temp2.time,cell:values.temp2.cell,analysisId:values.temp2.analysisId,source:'Taupunkt aus zeitgleicher Orts-Temperatur und relativer Feuchte berechnet (Magnus-Näherung, keine direkte Messung)'};
  }
