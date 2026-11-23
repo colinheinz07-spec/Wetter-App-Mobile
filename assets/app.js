@@ -1917,6 +1917,17 @@ function liveInitialState(f,point,now){
  for(const model of ['ICON-D2','ICON-EU'])for(const d of [...locationRuns(model,point),...quickRuns(model,point)])add(d);
  return candidates.sort((a,b)=>b.time-a.time||Number(b.d.model==='ICON-D2')-Number(a.d.model==='ICON-D2')||Date.parse(b.d.generated)-Date.parse(a.d.generated))[0]||null;
 }
+// Use the published +0-hour RUC area analysis if a native location tile is
+// missing. The area grid masks cells over 3.5 km from the original model grid.
+// These are model analyses, never station measurements or future forecasts.
+function liveAreaAnalysisFallback(id,point,now){
+ if(!point||!['temp2','dew','rh2','wind','winddir'].includes(id)||typeof WeatherObservation==='undefined'||typeof WeatherObservation.mapField!=='function'||typeof WeatherObservation.sampleField!=='function')return null;
+ const field=WeatherObservation.mapField(id,now);
+ if(!field||field.kind!=='analysis'||field.stale||!Number.isFinite(field.time)||field.time>now||now-field.time>liveAge)return null;
+ const value=WeatherObservation.sampleField(field,point);
+ if(!validLiveValue(id,value))return null;
+ return {value,kind:'analysis',time:field.time,cell:point,analysisId:'ICON-D2-RUC/area/'+field.time,source:'DWD ICON-D2-RUC · +0 h · 0,02° Flächenanalyse aus nativen Modellzellen (keine Messung)'};
+}
 function liveSample(id,f,point,now,initial=liveInitialState(f,point,now)){
  const a=point&&liveAnalysisCache.get(pointKey(point)),fresh=a&&a.run<=now&&now-a.run<=liveAge;
  const iv=initial&&id!=='gust'?(id==='rh2'?frameHumidity(initial):frameVal(initial,id)):NaN;
@@ -1934,7 +1945,7 @@ function liveSample(id,f,point,now,initial=liveInitialState(f,point,now)){
   if(id==='gust')return {value:a.values[id],kind:a.gust?.intervalMinutes===0?'analysis':'interval',time:a.run,source:source+(a.gust?.intervalMinutes===0?' · diagnostizierte Böe zur Analysezeit':' · letzte Stunde (Modell)'),cell:a.center,analysisId:'ICON-D2-RUC/'+a.run};
   return {value:a.values[id],kind:'analysis',time:a.run,source:source+' · Analyse',cell:a.center,analysisId:'ICON-D2-RUC/'+a.run};
  }
- return {value:NaN,kind:'missing',source:'Keine frische Ortsanalyse · Vorhersage separat'};
+ return liveAreaAnalysisFallback(id,point,now)||{value:NaN,kind:'missing',source:'Keine frische Ortsanalyse · Vorhersage separat'};
 }
 function liveLocalWeather(f,point,now){
  restoreLocalAnalysis(point,now);
