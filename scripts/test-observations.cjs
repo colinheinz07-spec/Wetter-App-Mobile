@@ -22,6 +22,8 @@ const oldFetch=global.fetch;global.fetch=async url=>new Response(JSON.stringify(
 (async()=>{try{
  await obs.refresh(null,true);
  assert.equal(obs.phaseAt(point,810,now).code,7);assert.equal(obs.phaseAt(point,1600,now),null);
+ assert.equal(obs.localTemperatureSeries(point,810,(t-900)*1000,t*1000).at(-1).temperature,-.3,'direct nearby temperature supports daily high');
+ assert.equal(obs.localTemperatureSeries([10.65,47.3984],810,(t-900)*1000,t*1000).length,0,'regional stations cannot establish exact remote daily extrema');
  assert.equal(obs.current(point,810,now).temp2.value,-.3);assert.match(obs.current(point,810,now).temp2.source,/Messstation Oberstdorf/);
  assert.equal(obs.mapField('temp2',now).kind,'analysis');assert.equal(obs.mapValue('temp2',[10.29,47.4],now),2);assert.ok(Number.isNaN(obs.mapValue('wind',[10.29,47.42],now)));
  assert.equal(obs.sampleField(obs.cloudField(now),[10.27,47.4]),0);assert.equal(obs.sampleField(obs.cloudField(now),[10.29,47.4]),100);assert.ok(Number.isNaN(obs.sampleField(obs.cloudField(now),[10.29,47.42])));
