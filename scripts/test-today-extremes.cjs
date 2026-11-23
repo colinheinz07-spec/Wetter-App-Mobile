@@ -36,7 +36,7 @@ assert.equal(withLive.hi,1.5,'a verified ongoing daytime +0h analysis can update
 // An observed maximum from the earlier part of the calendar day still counts,
 // even if the daytime period from 09 to 18 was colder.
 observed.push({time:Date.parse('2026-11-23T00:45:00Z'),temperature:-.5});
-assert.equal(ext(evening).hi,-.5,'real midnight-to-09 observation participates in today's high');
+assert.equal(ext(evening).hi,-.5,"real midnight-to-09 observation participates in the calendar-day high");
 observed.splice(0);
 const unavailable=ext(evening);
 assert.ok(Number.isNaN(unavailable.hi),'no fabricated observed maximum after daytime ends');
