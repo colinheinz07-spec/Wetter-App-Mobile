@@ -5,7 +5,7 @@ on:
     - cron: '1,6,11,16,21,26,31,36,41,46,51,56 * * * *'
   push:
     branches: [main]
-    paths: ['scripts/ingest-radar-phase.py','scripts/ingest-radar-points.py','scripts/ingest-opera-radar.py','scripts/ingest-swiss-radar.py','.github/workflows/mobile-radar.yml']
+    paths: ['scripts/ingest-radar-phase.py','scripts/ingest-radar-points.py','scripts/ingest-opera-radar.py','scripts/ingest-swiss-radar.py','assets/app.js','assets/national-warnings.js','.github/workflows/mobile-radar.yml']
 permissions:
   contents: write
 jobs:
