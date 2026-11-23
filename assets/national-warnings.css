@@ -10,6 +10,8 @@
 .nw-controls label[hidden]{display:none}
 .nw-controls select{width:100%;min-height:40px;padding:8px;background:var(--surface2);color:var(--text);border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px}
 .nw-map{position:relative;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--surface2);height:clamp(390px,130vw,700px);min-height:390px}
+.nw-map-status{position:absolute;z-index:4;bottom:44px;left:76px;right:12px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--text);font-size:12px;font-weight:600;line-height:1.4;box-shadow:0 2px 12px #0003;pointer-events:none}
+.nw-map-status[hidden]{display:none}
 .nw-map-layout{display:block;min-width:0;width:100%}
 .nw-type-tiles{position:absolute;z-index:2;left:6px;top:8px;width:59px;max-height:calc(100% - 16px);display:flex;flex-direction:column;gap:4px;overflow:auto;overscroll-behavior:contain;touch-action:pan-y;scrollbar-width:thin}
 .nw-type-tiles button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;flex-shrink:0;min-height:45px;padding:3px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);font-size:9px;font-weight:650;line-height:1.1;text-align:center;overflow-wrap:anywhere;box-shadow:0 1px 4px #0003}

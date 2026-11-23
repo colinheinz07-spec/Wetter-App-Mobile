@@ -7,7 +7,7 @@ on:
     - cron: '3,13,23,33,43,53 * * * *'
   push:
     branches: [main]
-    paths: ['scripts/ingest-ruc-live.py','scripts/ingest-ruc-hail.py','scripts/test-ruc-live.py','.github/workflows/mobile-live.yml']
+    paths: ['scripts/ingest-ruc-live.py','scripts/ingest-ruc-hail.py','scripts/test-ruc-live.py','assets/app.js','.github/workflows/mobile-live.yml']
 permissions:
   contents: write
 concurrency:

@@ -5,7 +5,7 @@ on:
     - cron: '7,22,37,52 * * * *'
   push:
     branches: [main]
-    paths: ['scripts/ingest-mobile-warnings.py', 'scripts/test-mobile-warning-ingest.py', '.github/workflows/mobile-warnings.yml']
+    paths: ['scripts/ingest-mobile-warnings.py', 'scripts/test-mobile-warning-ingest.py','assets/national-warnings.js', '.github/workflows/mobile-warnings.yml']
 permissions:
   contents: write
 concurrency:
