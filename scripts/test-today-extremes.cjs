@@ -27,7 +27,7 @@ const evening=Date.parse('2026-11-23T19:14:00Z');
 const finished=ext(evening,{temperature:{kind:'analysis',value:12,time:Date.parse('2026-11-23T19:00:00Z')}});
 assert.equal(finished.hi,-1,'evening forecast and evening live analysis cannot increase daytime maximum');
 assert.equal(finished.futureCount,0,'no daytime forecast remains after 18:00 local');
-assert.ok(finished.maxHour?.time,'observed maximum retains its observed timestamp');
+assert.equal(finished.maxHour?.start,Date.parse('2026-11-23T13:45:00Z'),'observed maximum retains its observed timestamp');
 const afternoon=ext(Date.parse('2026-11-23T14:30:00Z'));
 assert.equal(afternoon.hi,1,"only remaining 09-18 forecast can influence today\'s provisional maximum");
 assert.equal(afternoon.futureCount,1);
