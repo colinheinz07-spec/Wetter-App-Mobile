@@ -16,6 +16,7 @@ const ctx=vm.createContext({
  forecastPriority:[],shortRainLimits:{},longRainLimits:{},
  warningLevel:(value,limits)=>Number.isFinite(value)?limits.reduce((l,x,i)=>value>=x?i+1:l,0):0,
  periodNewSnowBounds:p=>p.snowBounds??null,
+ newSnowInterval:()=>NaN,
  hourlySnowBoundsWindow:(hours,start,end)=>hours?.length?hours[0]?.snowBounds??null:null,
  snowfallText:r=>r.join('–')+' cm',
  temperatureText:t=>String(t),
