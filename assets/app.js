@@ -3352,7 +3352,7 @@ function fetchBrightRadar(){
 function fetchBrightRadarFrame(date){
  const t=date.getTime();if(!Number.isFinite(t)||t<Date.now()-120*60000||t>Date.now()+120*60000||brightRadarPending.has(t)||Date.now()-(brightRadarChecks.get(t)||0)<60000)return;
  brightRadarChecks.set(t,Date.now());while(brightRadarChecks.size>45)brightRadarChecks.delete(brightRadarChecks.keys().next().value);
- const task=(async()=>{try{const row=(await brightRadarFetch(t,t)).find(r=>r.time===t);if(!row)return;const amount=await brightRadarUnpack(row);brightRadarFrames.set(t,{time:t,grid:brightRadarGrid,amount,source:'RV / Bright Sky'+(row.forecast?' · Prognose':''),forecast:row.forecast,key:'bright/'+t+'/'+row.base});while(brightRadarFrames.size>4)brightRadarFrames.delete(brightRadarFrames.keys().next().value);refreshOwnRadarViews()}catch{}})().finally(()=>brightRadarPending.delete(t));brightRadarPending.set(t,task);
+ const task=(async()=>{try{const row=(await brightRadarFetch(t,t)).find(r=>r.time===t);if(!row)return;const amount=await brightRadarUnpack(row);brightRadarFrames.set(t,{time:t,grid:brightRadarGrid,amount,source:'RV / Bright Sky'+(row.forecast?' · Prognose':''),forecast:row.forecast,key:'bright/'+t+'/'+row.base});while(brightRadarFrames.size>10)brightRadarFrames.delete(brightRadarFrames.keys().next().value);refreshOwnRadarViews()}catch{}})().finally(()=>brightRadarPending.delete(t));brightRadarPending.set(t,task);
 }
 
 
@@ -3429,7 +3429,7 @@ function radarModelPhase(models,lon,lat){
  }return 1;
 }
 function ownRadarWithModels(frame){
- if(!frame||!frame.amount||!frame.forecast)return frame;
+ if(!frame||(!frame.amount&&!frame.rateSources))return frame;
  const models=radarPhaseModels(frame.time,!!frame.forecast);if(!models.length)return frame;
  return {...frame,models,key:frame.key+'/model/'+models.map(m=>m.key).join('|')};
 }
@@ -3439,7 +3439,7 @@ function ownRadarWithModels(frame){
 // Only combine intensity and phase when their observation times and grids match.
 const ownRadarCache=new Map();
 const ownRadarColors={
- 1:['#29c2ac','#0c918e','#007475','#005056','#00333b'],
+ 1:['#a0dbff','#68baff','#3694ee','#215ad4','#4b1594'],
  2:['#a0dbff','#68baff','#3694ee','#215ad4','#4b1594'],
  3:['#319dff','#0879df','#1260dc','#2736b7','#56178e'],
  4:['#ffd790','#ffb34c','#f68727','#e74b1b','#ae2c12'],
@@ -3518,8 +3518,8 @@ function ownRadarPixel(frame,point){
  const time=sample?.time??frame.time,source=sample?.source??frame.source,code=Math.abs(time-frame.phaseTime)<=5*60000?phaseCode:255;
  if(!Number.isFinite(rate))return null;
  if(rate===0)return {code:0,rate,estimated:false,source,time};
- if(rate>0&&code>=2&&code<=10)return {code,rate,estimated:false,source,time};
- if(rate>0){const modelCode=frame.forecast?radarModelPhase(frame.models,...point):1;return {code:modelCode,rate,estimated:modelCode>1,source,time};}
+ if(rate>0&&code>=2&&code<=11)return {code,rate,estimated:false,source,time};
+ if(rate>0){const modelCode=radarModelPhase(frame.models,...point);return {code:modelCode,rate,estimated:modelCode>1,source,time};}
  if(code===1)return {code:1,rate,estimated:false,source,time};return null;
 }
 function drawOwnRadarSymbols(ctx,b,frame,mode='radar'){
@@ -3556,7 +3556,7 @@ function radarWorkerPaint(frame,mode,colors,tolerance){
   const i=y*g.nx+x,out=(g.ny-1-y)*g.nx+x;let rate=NaN,time=frame.time;
   if(sources)[rate,time]=radarPackedSelection(sources,i,classes?.charCodeAt(i),frame.phaseTime,tolerance,frame.time);
   else if(amount){const v=(amount.charCodeAt(i*2)|amount.charCodeAt(i*2+1)<<8)<<16>>16;if(v>=0)rate=v*g.scale*(frame.rateFactor??12)}
-  if(!Number.isFinite(rate)){if(sources)pixels[out]=missing;continue}if(!(rate>0))continue;
+  if(!Number.isFinite(rate))continue;if(!(rate>0))continue;
   let code=classes&&Math.abs(time-frame.phaseTime)<=300000?classes.charCodeAt(i):255;
   if(code===0||code===1||code===255)code=radarModelPhase(frame.models,g.west+x*g.step,g.south+y*g.step);
   if(mode==='snowfall'&&code!==6&&code!==7)continue;
@@ -3598,7 +3598,7 @@ function ownRadarRaster(frame,mode='radar'){
   let code=classes&&Math.abs(sampleTime-frame.phaseTime)<=5*60000?classes.charCodeAt(i):255;
   // A measured dry cell or a gap is never turned into precipitation by a
   // different network's phase classification, even at the same timestamp.
-  if(!Number.isFinite(rate)){if(sources)pixels[out]=missingColor;continue}
+  if(!Number.isFinite(rate))continue;
   if(!(rate>0))continue;
   if(rate>0&&(code===0||code===1||code===255))code=radarModelPhase(frame.models,g.west+x*g.step,g.south+y*g.step);
   if(mode==='snowfall'&&![6,7].includes(code))continue;
@@ -3632,11 +3632,11 @@ function readyRadarFrame(frame,mode='radar',allowOlder=false){
  const now=Date.now();return [...ownRadarCache.values()].filter(e=>e.mode===mode&&!e.frame.forecast&&e.frame.time<=now&&now-e.frame.time<=20*60000&&(!frame||e.frame.time<=frame.time)).sort((a,b)=>b.frame.time-a.frame.time)[0]?.frame||null;
 }
 function ownRadarSource(frame){return frame?'Eigenes Radar · '+frame.source:'Radarquelle wird geladen'}
-function ownRadarDescription(frame){const scans=frame?.rateSources?.map(s=>s.source+' '+localTime(s.time,{hour:'2-digit',minute:'2-digit'})).join(' / ');return (scans?'Radar-Verbund · '+scans+' · Europa/Schweiz bevorzugt, DWD ergänzend (max. 10 Min. Versatz) · ':frame?.rateFactor===1?'Momentanrate · ':frame?.forecast?'Radar-Nowcast · ':'')+(frame?.classes?'Beobachtete Niederschlagsart: HymecNG · max. 5 Min. Versatz':'Radarintensität')+(frame?.models?.length?' · fehlende Phase aus '+[...new Set(frame.models.map(m=>m.d.model))].join(' / ')+' geschätzt':frame?.classes?'':' · Art unbekannt')+(scans?' · Grau: keine Radarmessung':'')}
+function ownRadarDescription(frame){const scans=frame?.rateSources?.map(s=>s.source+' '+localTime(s.time,{hour:'2-digit',minute:'2-digit'})).join(' / ');return (scans?'Radar-Verbund · '+scans+' · Europa/Schweiz bevorzugt, DWD ergänzend (max. 10 Min. Versatz) · ':frame?.rateFactor===1?'Momentanrate · ':frame?.forecast?'Radar-Nowcast · ':'')+(frame?.classes?'Beobachtete Niederschlagsart: HymecNG · max. 5 Min. Versatz':'Radarintensität')+(frame?.models?.length?' · fehlende Phase aus '+[...new Set(frame.models.map(m=>m.d.model))].join(' / ')+' geschätzt':frame?.classes?'':' · Art unbekannt')+(scans?' · Transparente Lücken: keine Radarmessung':'')}
 
 function drawRealRadar(ctx,b,date,onChange=scheduleMap,allowOlder=false,mode='radar',cloud=true){
  const requested=ownRadarFrame(date,allowOlder);
- if(cloud&&mode==='radar'&&allowOlder&&(!requested||!requested.forecast))drawObservedField(ctx,b,'cloud');
+ if(cloud&&mode==='radar')drawObservedField(ctx,b,'cloud');
  try{if(requested)ownRadarRaster(requested,mode);const frame=readyRadarFrame(requested,mode,allowOlder),img=frame&&ownRadarRaster(frame,mode);if(img){const g=frame.grid,[x,y]=xy(g.west-g.step/2,g.south+(g.ny-.5)*g.step,b),[right,bottom]=xy(g.west+(g.nx-.5)*g.step,g.south-g.step/2,b),smooth=ctx.imageSmoothingEnabled;ctx.imageSmoothingEnabled=false;ctx.drawImage(img,x,y,right-x,bottom-y);ctx.imageSmoothingEnabled=smooth;return frame.key===requested?.key?'ready':'cached'}}catch{}
  if(!requested&&typeof fetch==='function'){if(allowOlder){fetchOperaRadar();fetchSwissRadar();if(!ownRadarFresh(radarPointData,12))fetchBrightRadar()}else fetchNowcastMapFrame(date)}
  return 'loading';
@@ -3649,7 +3649,7 @@ function smoothGust(d,p,pos,h){const g=d.grid,x=(pos[0]-g.west)/g.step,y=(pos[1]
 function drawRealLiveField(ctx,b,fast){
  const info=realLiveInfo();if(info.satellite){if(!drawObservedField(ctx,b,'cloud')&&currentLiveImage())drawLiveImage(ctx,b,'satellite');drawRealRadar(ctx,b,new Date(radarBaseTime()),scheduleMap,true,'radar',false);return}if(liveAreaIds[liveLayer]&&!info.observedGrid&&!info.radar)prepareLiveArea(mapRegion==='Deutschland');if(!info.available)return;
  if(info.image){drawLiveImage(ctx,b,liveLayer);return}
- if(info.radar){const status=drawRealRadar(ctx,b,info.date,scheduleMap,liveMinute===0,liveLayer);if(!fast&&(status==='ready'||status==='cached'))prefetchNextRadar(info.date);return}
+ if(info.radar){const status=drawRealRadar(ctx,b,info.date,scheduleMap,liveMinute===0,liveLayer);if(!fast)prefetchNextRadar(info.date);return}
  if(info.observedGrid){drawObservedField(ctx,b,liveAreaIds[liveLayer]);return}
  if(!info.model)return;
  const id=liveAreaIds[liveLayer],d=info.model.d,p=fields[id],hour=info.model.hour;
@@ -3668,7 +3668,7 @@ function drawObservedField(ctx,b,id){
  const g=field.grid,key=id+'/'+field.kind+'/'+field.time;let c=observationImages.get(key);
  if(!c){c=document.createElement('canvas');c.width=g.nx;c.height=g.ny;const cx=c.getContext('2d'),im=cx.createImageData(g.nx,g.ny);
   for(let j=0;j<g.ny;j++)for(let i=0;i<g.nx;i++){const v=field.values[(g.ny-1-j)*g.nx+i],n=(j*g.nx+i)*4;if(!Number.isFinite(v)){if(id!=='cloud')im.data.set([155,164,166,255],n);continue;}
-   if(id==='cloud'){if(v===0)continue;im.data[n]=242;im.data[n+1]=246;im.data[n+2]=250;im.data[n+3]=Math.round(Math.min(100,v)*1.9);}
+   if(id==='cloud'){if(v===0)continue;im.data[n]=242;im.data[n+1]=246;im.data[n+2]=250;im.data[n+3]=Math.round(Math.pow(Math.min(100,v)/100,1.7)*145);}
    else{const rgb=rgbForLive(liveColor(id==='temp2'?'temperature':'wind',id==='temp2'?{temp:v}:{wind:v}));im.data.set([...rgb,255],n);}}
   cx.putImageData(im,0,0);observationImages.set(key,c);while(observationImages.size>6)observationImages.delete(observationImages.keys().next().value);
  }
@@ -4184,7 +4184,7 @@ bindFullMap();
 function stepMap(direction,wrap=false){if(realForecastMap()){syncModelTimeline();const i=mapFutureHours.indexOf(mapHour),max=mapFutureHours.length-1;if(i<0)return;const next=i+direction;selectFutureMapIndex(wrap&&next>max?0:clamp(next,0,max));scheduleMap();return}const slider=el('map-time'),step=+slider.step||1,min=+slider.min,max=+slider.max;if(mapSource==='live'&&liveHourlyMode()){let hour=liveTempHour+direction;if(hour<0&&liveTempDay>0){liveTempDay--;hour=23}else if(hour>23&&liveTempDay<2){liveTempDay++;hour=0}else if(wrap&&hour>23){liveTempDay=0;hour=0}liveTempHour=clamp(hour,0,23)}else{const value=(mapSource==='live'?liveMinute:mapHour)+direction*step,next=wrap&&value>max?min:clamp(value,min,max);if(mapSource==='live')liveMinute=next;else mapHour=next;slider.value=next}scheduleMap()}
 el('map-back').addEventListener('click',()=>{stopPlay();stepMap(-1)});el('map-next').addEventListener('click',()=>{stopPlay();stepMap(1)});
 el('map-time').addEventListener('input',e=>{stopPlay();const value=+e.target.value;if(realForecastMap())selectFutureMapIndex(value);else if(mapSource==='live'){if(liveHourlyMode())liveTempHour=value;else liveMinute=value}else mapHour=value;scheduleMap()});
-el('map-play').addEventListener('click',()=>{if(mapTimer!==null){stopPlay();return}el('map-play').textContent='Ⅱ';el('map-play').setAttribute('aria-label','Wiedergabe pausieren');mapTimer=setInterval(()=>{if(document.hidden){stopPlay();return}if(mapSource==='live'&&realLiveEnabled&&['radar','types','snowfall'].includes(liveLayer)&&!liveHourlyMode()){if(!ownRadarFrame(realLiveTime(),liveMinute===0)){fetchNowcastMapFrame(realLiveTime());return;}if(radarRasterJob)return;}const d=realData();if(mapSource==='model'&&d?.nativeMap&&!nativeFieldsReady(d,fields[mapLayer],mapHour)&&mapFieldRequirements(d,fields[mapLayer],mapHour).some(([h,k])=>nativeFieldLoading.has(d.file+'/'+d.generated+'/'+h+'/'+k)))return;stepMap(1,true)},750)});
+el('map-play').addEventListener('click',()=>{if(mapTimer!==null){stopPlay();return}el('map-play').textContent='Ⅱ';el('map-play').setAttribute('aria-label','Wiedergabe pausieren');mapTimer=setInterval(()=>{if(document.hidden){stopPlay();return}if(mapSource==='live'&&realLiveEnabled&&['radar','types','snowfall'].includes(liveLayer)&&!liveHourlyMode()){const date=realLiveTime(),frame=ownRadarFrame(date,liveMinute===0);if(!frame){fetchNowcastMapFrame(date);prefetchNextRadar(date);stepMap(1,true);return;}if(!readyRadarFrame(frame,liveLayer,false)){ownRadarRaster(frame,liveLayer);return;}}const d=realData();if(mapSource==='model'&&d?.nativeMap&&!nativeFieldsReady(d,fields[mapLayer],mapHour)&&mapFieldRequirements(d,fields[mapLayer],mapHour).some(([h,k])=>nativeFieldLoading.has(d.file+'/'+d.generated+'/'+h+'/'+k)))return;stepMap(1,true)},750)});
 // Re-evaluate at the civil hour boundary even if the user leaves the map open.
 // Returning from a suspended mobile tab must also immediately discard old times.
 let modelClockTimer=null;
