@@ -14,6 +14,7 @@ Geprüfte Ausgangsversion: `1c7660981e9f950ba1f80aae48a4cd7a0b1f9f3e`.
 | Bodenmeldungen | Symbolische Texte mit Unterstrichen und verneintem „freezing“ wurden falsch erkannt; vergangener Niederschlag konnte aktuell erscheinen. | Normalisierte Code-Texte; verneintes Gefrieren und vergangene Meldungen werden korrekt behandelt. Eiskörner bleiben eigenständig. `test-observed-surface.py`. |
 | Pegel | `Number(null)` erzeugte einen scheinbaren Wasserstand von null; verspätete Antworten konnten die neuere Auswahl überschreiben. | Fehlend, echter Nullwert, veraltet und zukünftig werden unterschieden. Orts- und Pegelwechsel verwerfen überholte Antworten. Zeitreihen werden sortiert. `test-hazard-data.cjs`. |
 | Straßenwetter / Fehlertexte | Zukünftige Paketzeiten wurden akzeptiert; Quellenlinks erschienen als maskierter HTML-Text. | Zeitprüfung und echte, getrennt erzeugte Quellenlinks. |
+| Ortsübernahme bei Gefahren | Der voreingestellte Ort besaß nur einen Namen; die Gefahrenansicht erhielt dessen auf der Wetterseite bereits aufgelöste Koordinaten nicht. | Gemeinsame Ortsübergabe löst auch voreingestellte Orte auf; Suchkoordinaten bleiben vorrangig. Regression im echten Browser und im Kontextübergabetest. |
 | Automatische Prüfungen | Radar-Tests erwarteten teilweise entfernte Farben bzw. eine überholte Schnittstelle; wichtige Prüfungen fehlten im CI-Lauf. | Erwartungen an gültige Transparenz und unbekannte Phase angepasst, fehlende Abhängigkeiten in Test-Fixtures ergänzt, neue Regressionen eingebunden. |
 
 ## Daten und Prüfumfang

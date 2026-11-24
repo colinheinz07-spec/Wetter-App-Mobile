@@ -4,6 +4,23 @@ const now=Date.parse('2026-11-24T20:40:00Z');
 class Clock extends Date {constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}}
 const nodes=new Map(),node=id=>{if(!nodes.has(id))nodes.set(id,{innerHTML:'',isConnected:true,querySelectorAll:()=>[]});return nodes.get(id);};
 let place={name:'Berlin',lon:13.4,lat:52.5};
+// Use the app's real context bridge as well: initial built-in places have
+// names but no coordinates, whereas searched/favourite places contain both.
+const app=fs.readFileSync('assets/app.js','utf8');
+const contextStart=app.indexOf('window.WEATHER_APP_CONTEXT=');
+const pointStart=app.indexOf('function homeLocationPoint(');
+assert.ok(contextStart>=0&&pointStart>=0);
+const bridge=vm.createContext({window:{},location:{name:'Berlin'},Number,
+ mapPlaceRecords:[['Berlin',13.405,52.52]]});
+vm.runInContext(app.slice(pointStart,app.indexOf('function homeCurrentSample(',pointStart))+
+ app.slice(contextStart,app.indexOf('const nav=',contextStart)),bridge);
+assert.deepEqual(JSON.parse(JSON.stringify(bridge.window.WEATHER_APP_CONTEXT.getLocation())),{name:'Berlin',lon:13.405,lat:52.52});
+bridge.location=place;
+assert.equal(bridge.window.WEATHER_APP_CONTEXT.getLocation().lon,13.4,'explicit searched coordinates take priority');
+bridge.location={name:'Köln',lon:6.96,lat:50.94};
+assert.equal(bridge.window.WEATHER_APP_CONTEXT.getLocation().name,'Köln','location changes are read on each call');
+bridge.location={name:'Unbekannter Ort'};
+assert.equal(bridge.window.WEATHER_APP_CONTEXT.getLocation(),null,'missing coordinates stay missing');
 const context=vm.createContext({console,Date:Clock,Number,Math,URLSearchParams,AbortController,setTimeout,clearTimeout,
  document:{getElementById:node,querySelectorAll:()=>[]},window:{WEATHER_APP_CONTEXT:{getLocation:()=>place}}
 });
