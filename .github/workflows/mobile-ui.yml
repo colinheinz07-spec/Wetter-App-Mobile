@@ -21,6 +21,13 @@ on:
       - 'scripts/test-radar-phase.cjs'
       - 'scripts/test-forecast-period-details.cjs'
       - 'scripts/test-unified-hourly.cjs'
+      - 'scripts/test-weather-audit.cjs'
+      - 'scripts/test-hazard-data.cjs'
+      - 'scripts/test-observed-surface.py'
+      - 'scripts/ingest-observed-surface.py'
+      - 'scripts/test-nowcast-worker.cjs'
+      - 'scripts/test-ui-responsiveness.cjs'
+      - 'scripts/test-storm-tracking.cjs'
       - '.github/workflows/mobile-ui.yml'
   pull_request:
 permissions:
@@ -37,6 +44,11 @@ jobs:
       - run: node scripts/check-mobile.cjs
       - run: node scripts/test-cloudflare-updater.mjs
       - run: node scripts/test-data-performance-unit.cjs
+      - run: node scripts/test-weather-audit.cjs
+      - run: node scripts/test-hazard-data.cjs
+      - run: python3 scripts/test-observed-surface.py
+      - run: node scripts/test-nowcast-worker.cjs
+      - run: node scripts/test-ui-responsiveness.cjs
       - run: node scripts/test-live-observations.cjs
       - run: node scripts/test-live-fog-weather.cjs
       - run: node scripts/test-local-warning-signals.cjs
@@ -45,6 +57,7 @@ jobs:
       - run: node scripts/test-observations.cjs
       - run: node scripts/test-radar-phase.cjs
       - run: node scripts/test-forecast-period-details.cjs
+      - run: node scripts/test-storm-tracking.cjs
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 18

@@ -2,12 +2,12 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const source=fs.readFileSync(fs.existsSync('assets/app.js')?'assets/app.js':'index.html','utf8');
 const chunk=(a,b)=>source.slice(source.indexOf(a),source.indexOf(b));
 (async()=>{
- // Actual OPERA resolution; all cells wet, with a known snowy model phase.
+ // Actual OPERA resolution; observations stay phase-unknown even if a snowy model is available.
  const nx=1601,ny=1201,amount=Buffer.alloc(nx*ny*2);
  for(let i=0;i<amount.length;i+=2)amount.writeInt16LE(100,i);
  const jobs=[],counters={paint:0,notify:0,home:0},panel={getBoundingClientRect:()=>({top:10000,bottom:11000})};
  const ctx=vm.createContext({Map,Math,Number,atob,performance,console,innerHeight:800,activePage:'weather',counters,panel,
-  document:{hidden:false,querySelector:()=>panel,createElement:()=>({getContext:()=>({createImageData:(w,h)=>({data:new Uint8ClampedArray(w*h*4)}),putImageData:im=>{counters.paint++;assert.deepEqual(Array.from(im.data.slice(0,4)),[243,106,186,224]);assert.deepEqual(Array.from(im.data.slice(-4)),[243,106,186,224])}})})},
+  document:{hidden:false,querySelector:()=>panel,createElement:()=>({getContext:()=>({createImageData:(w,h)=>({data:new Uint8ClampedArray(w*h*4)}),putImageData:im=>{counters.paint++;assert.deepEqual(Array.from(im.data.slice(0,4)),[104,186,255,224]);assert.deepEqual(Array.from(im.data.slice(-4)),[104,186,255,224])}})})},
   setTimeout:fn=>{jobs.push(fn);return jobs.length},renderHomeMaps:()=>counters.home++,scheduleMap:()=>counters.notify++,radarRevision:0,radarModelPhase:()=>7,
   grid:{nx,ny,west:2,south:45,step:.01,scale:.01},amount:amount.toString('base64')});
  vm.runInContext(chunk('let homePreviewObserver=','function deferHomeMaps')+chunk('const ownRadarCache=','function ownRadarSource'),ctx);

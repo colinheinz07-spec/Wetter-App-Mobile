@@ -43,5 +43,8 @@ for(const h of hours){
 const missing=api.applyCurrentHour({start:live.start,temperature:0,weather:rain},{...live,temperature:{kind:'missing',value:NaN}});
 assert.equal(missing.temperature,0);assert.equal(missing.temperatureSample,null);
 assert.equal(missing.weather.icon,snow.icon);
+const samples={wind:{value:5,kind:'observation'},dew:{value:-2,kind:'analysis'},cloud:{value:99,kind:'analysis'}};
+const shared=api.applyCurrentHour({start:live.start,temperature:2,weather:rain},{...live,live:samples});
+assert.equal(shared.currentSamples,samples,'current hour uses the same parameter samples as the hero');
 assert.ok(Number.isNaN(api.summarizeTemperatureHours([{temperature:-1},{temperature:NaN}]).lo));
 console.log('PASS: shared current/hourly values; night through 06:00; daytime maximum; morning 09:00 and evening 21:00; evening cooling belongs to following night; missing data stays marked.');

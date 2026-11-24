@@ -50,7 +50,7 @@ function current(point,height,now=Date.now()){
 }
 function phaseAt(point,height,now=Date.now()){
  if(!surface)return null;
- const a=nearby(latestRows(surface.rows,now,60*MIN),point,height,2).filter(x=>Number.isInteger(x.r.values.phase)&&x.r.values.phase>=2&&x.r.values.phase<=10&&(!finite(height)?x.d<=1.5:x.dh<=150));
+ const a=nearby(latestRows(surface.rows,now,60*MIN),point,height,2).filter(x=>Number.isInteger(x.r.values.phase)&&x.r.values.phase>=2&&x.r.values.phase<=11&&(!finite(height)?x.d<=1.5:x.dh<=150));
  const r=a[0]?.r;if(!r)return null;return {code:r.values.phase,time:r.time*1000,kind:'ground',intensity:r.values.strong?'strong':undefined,source:'DWD SYNOP · '+r.name+' · beobachtete Niederschlagsart',distance:a[0].d*1000};
 }
 function series(point,height,start,end){

@@ -12,8 +12,9 @@ for(const path of (process.argv.length>2?process.argv.slice(2):['assets/app.js']
   rate:Buffer.from([100,0,200,0,100,0,0,0]).toString('base64'),phase:Buffer.from([7,3,6,0]).toString('base64')});
  const ev=s=>vm.runInContext(s,ctx);
  ev(part);
- assert.equal(ev('radarPhaseModels(time).length'),1);
- ev('const models=radarPhaseModels(time)');
+ assert.equal(ev('radarPhaseModels(time).length'),0,'observed radar must not request model phase');
+ assert.equal(ev('radarPhaseModels(time,true).length'),1);
+ ev('const models=radarPhaseModels(time,true)');
  assert.equal(ev('radarModelPhase(models,8,50)'),7);
  assert.equal(ev('radarModelPhase(models,9,50)'),3);
  assert.equal(ev('phaseCodeFromModel(61,NaN,-1,NaN,90)'),7);

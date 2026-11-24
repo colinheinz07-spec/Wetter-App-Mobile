@@ -12,3 +12,7 @@
 *.zip
 node_modules/
 .DS_Store
+
+# Python importer and test caches
+__pycache__/
+*.pyc
