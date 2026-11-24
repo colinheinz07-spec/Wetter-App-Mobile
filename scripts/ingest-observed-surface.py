@@ -29,14 +29,16 @@ def number(fields, key, unit, transform=lambda v:v, limits=(-math.inf,math.inf))
     return round(v,2) if math.isfinite(v) and limits[0]<=v<=limits[1] else None
 
 def phase(value):
-    s=str(value or '').upper()
-    if any(w in s for w in ('PAST HOUR','RECENT','NOT AT','NOT NOW','NO SIGNIFICANT','NO PRECIPITATION','NO WEATHER','NOT AVAILABLE','UNKNOWN','VICINITY')):return None
-    if 'FREEZING' in s and 'DRIZZLE' in s:return 4
-    if 'FREEZING' in s and 'RAIN' in s:return 5
+    s=re.sub(r'[_-]+',' ',str(value or '').upper())
+    if any(w in s for w in ('PAST HOUR','PRECEDING HOUR','RECENT','NOT AT','NOT NOW','NO SIGNIFICANT','NO PRECIPITATION','NO WEATHER','NOT AVAILABLE','UNKNOWN','VICINITY')):return None
+    freezing='FREEZING' in s and 'NOT FREEZING' not in s and 'NON FREEZING' not in s
+    if freezing and 'DRIZZLE' in s:return 4
+    if freezing and 'RAIN' in s:return 5
     if 'SNOW' in s and ('RAIN' in s or 'DRIZZLE' in s):return 6
     if 'HAIL' in s and 'SNOW' not in s:return 9
     if 'GRAUPEL' in s or 'SNOW PELLET' in s:return 8
-    if 'SNOW' in s and 'ICE PELLET' not in s:return 7
+    if 'ICE PELLET' in s:return 11
+    if 'SNOW' in s:return 7
     if 'DRIZZLE' in s:return 2
     if 'RAIN' in s:return 3
     return None

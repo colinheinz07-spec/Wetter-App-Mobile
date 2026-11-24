@@ -37,6 +37,8 @@ jobs:
         run: pip install h5py numpy pyproj
       - if: matrix.branch == 'mobile-observed-surface'
         run: pip install numpy scipy
+      - if: matrix.branch == 'mobile-observed-surface'
+        run: python scripts/test-observed-surface.py
       - if: matrix.branch == 'mobile-satellite-cloud'
         run: pip install numpy netCDF4
       - if: matrix.branch == 'mobile-satellite-cloud'

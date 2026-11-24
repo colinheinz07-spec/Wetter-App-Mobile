@@ -22,6 +22,7 @@ const path=require('node:path');
   if(dimensions.document>dimensions.viewport+3)failures.push(width+'px horizontal overflow '+JSON.stringify(dimensions));
   await page.locator('#navigation button[data-page="hazards"]').click();
   assert.ok(await page.locator('#page-hazards.active').count(),'Hazards menu not activated');
+  assert.match(await page.locator('#hazard-selected-place').innerText(),/Standort: Berlin/,'Hazards must inherit the initial weather location');
   await page.locator('[data-hazard-tab="water"]').click();
   assert.equal(await page.locator('#hazard-water').isVisible(),true,'Flood area missing');
   await page.locator('#navigation button[data-page="expert"]').click();

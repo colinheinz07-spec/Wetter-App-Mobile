@@ -90,18 +90,18 @@ vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`
  const t=now-5*60000,iso=new Date(t).toISOString(),amount=pack([10,10,10,0,-32768,100]),classes=Buffer.from([7,3,255,0,255,9]).toString('base64');
  let builds=0,rendered=null,draws=0;
  const canvas=()=>({getContext:()=>({createImageData:(w,h)=>({data:new Uint8ClampedArray(w*h*4)}),putImageData:im=>{rendered=im.data;builds++}})});
- const c=vm.createContext({Date:TestDate,Map,Math,Number,atob,console,radarBaseTime:()=>t,operaRadarData:null,radarPointData:{time:iso,grid,amount},radarPhaseData:{time:iso,grid:{...grid,missing:255},classes},radarNowcastData:null,document:{createElement:canvas},scheduleMap:()=>{},xy:(x,y)=>[x,y],drawContext:{drawImage:()=>draws++}});
+ const c=vm.createContext({Date:TestDate,Map,Math,Number,atob,console,drawObservedField:()=>false,radarBaseTime:()=>t,operaRadarData:null,radarPointData:{time:iso,grid,amount},radarPhaseData:{time:iso,grid:{...grid,missing:255},classes},radarNowcastData:null,document:{createElement:canvas},scheduleMap:()=>{},xy:(x,y)=>[x,y],drawContext:{drawImage:()=>draws++}});
  vm.runInContext(chunk('const radarCoverage=','function drawRealLiveField'),c);
  const r=s=>vm.runInContext(s,c);
  assert.equal(r('ownRadarObservation().source'),'DWD RY · Phase: DWD HymecNG');
  r('const f=ownRadarObservation();ownRadarRaster(f);ownRadarRaster(f);');
  assert.equal(builds,1);
  const rgba=i=>Array.from(rendered.slice(i*4,i*4+4));
- assert.equal(rgba(0)[3],0);assert.equal(rgba(1)[3],65); // north: dry/missing, explicitly distinct
+ assert.equal(rgba(0)[3],0);assert.equal(rgba(1)[3],0); // missing radar must not hide the basemap or cloud mask
  assert.deepEqual(rgba(2),[240,0,199,224]); // north: hail 12 mm/h
  assert.deepEqual(rgba(3),[243,106,186,224]); // south: snow 1.2 mm/h
  assert.deepEqual(rgba(4),[8,121,223,224]); // south: rain
- assert.deepEqual(rgba(5),[12,145,142,224]); // unknown, distinct from rain and missing radar/cloud data
+ assert.deepEqual(rgba(5),[104,186,255,224]); // unknown, distinct from rain and missing radar/cloud data
  assert.deepEqual(Array.from(new Uint8Array(r("radarWorkerPaint(f,'radar',ownRadarColors,RADAR_SOURCE_TOLERANCE_MS)"))),Array.from(rendered),'worker must match original renderer byte for byte');
  r('drawRealRadar(drawContext,{},new Date(f.time),()=>{},true)');
  assert.equal(draws,1);assert.equal(builds,1);
@@ -154,7 +154,7 @@ vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`
  // Numeric radar is reused across zoom and fullscreen; no WMS fallback.
  const radarGrid={west:2,south:45,step:1,nx:2,ny:2,scale:.01,missing:-32768},radarAmount=Buffer.from([100,0,0,0,100,0,100,0]).toString('base64');
  const base=now-10*60000,draws=[];let builds=0;
- const radar=vm.createContext({console,Date:TestDate,Map,Math,Number,atob,base,operaRadarData:{time:new Date(base).toISOString(),grid:radarGrid,amount:radarAmount},radarPointData:null,radarPhaseData:null,radarNowcastData:null,radarBaseTime:()=>base,document:{createElement:()=>({getContext:()=>({createImageData:(w,h)=>({data:new Uint8ClampedArray(w*h*4)}),putImageData:()=>builds++})})},scheduleMap:()=>{},xy:(lon,lat,b)=>[(lon-b.west)*b.w/(b.east-b.west),(b.north-lat)*b.h/(b.north-b.south)],drawContext:{drawImage:(...a)=>draws.push(a)}});
+ const radar=vm.createContext({console,Date:TestDate,Map,Math,Number,atob,drawObservedField:()=>false,base,operaRadarData:{time:new Date(base).toISOString(),grid:radarGrid,amount:radarAmount},radarPointData:null,radarPhaseData:null,radarNowcastData:null,radarBaseTime:()=>base,document:{createElement:()=>({getContext:()=>({createImageData:(w,h)=>({data:new Uint8ClampedArray(w*h*4)}),putImageData:()=>builds++})})},scheduleMap:()=>{},xy:(lon,lat,b)=>[(lon-b.west)*b.w/(b.east-b.west),(b.north-lat)*b.h/(b.north-b.south)],drawContext:{drawImage:(...a)=>draws.push(a)}});
  vm.runInContext(chunk('const radarCoverage=','function drawRealLiveField'),radar);
  const r=s=>vm.runInContext(s,radar);
  r("const time=new Date(radarBaseTime()),a={west:2,south:45,east:18,north:57,w:360,h:160},b={west:7,south:49,east:9,north:51,w:800,h:600};drawRealRadar(drawContext,a,time);drawRealRadar(drawContext,b,time)");
