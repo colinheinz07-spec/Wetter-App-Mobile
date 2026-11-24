@@ -116,7 +116,8 @@ const server=http.createServer((req,res)=>{
   await page.locator('#map-info-close').click();await page.locator('#map-full-close').click();
   // A viewport-independent radar request must be used for zoom and fullscreen.
   await page.locator('[data-map-source="live"]').click();
-  await page.locator('#map-live-layer').selectOption('radar');
+  assert.equal(await page.locator('[data-full-layer="radar"], #map-live-layer option[value="radar"]').count(),0);
+  await page.locator('#map-live-layer').selectOption('types');
   await page.locator('#map-nowcast-now').click();
   await page.waitForFunction(()=>document.querySelector('#map-data-notice').textContent==='Eigenes Radar');
   const currentRadar=()=>requests.filter(s=>new URL(s).pathname.endsWith('/opera-radar.json.gz'));
@@ -138,7 +139,13 @@ const server=http.createServer((req,res)=>{
   await page.waitForFunction(()=>WeatherObservation.cloudField()&&document.querySelector('#map-valid').textContent.includes('Radar:')&&!document.querySelector('#map-valid').textContent.includes('Radar: keine Daten'));
   assert.match(await page.locator('#map-layer-title').innerText(),/Satellitenwolken \+ Niederschlagsradar/);
   assert.match(await page.locator('#radar-type-legend').innerText(),/Art unbekannt/);
-  const satelliteColors=await canvasColors();assert.ok((satelliteColors[dominantRadar[0]]||0)>100,'satellite must composite the actual wet radar over the cloud mask: '+JSON.stringify({dominantRadar,satelliteColors}));
+  const satelliteColors=await canvasColors();
+  const wetSamples=Object.entries(satelliteColors).filter(([rgb])=>{
+   const [red,green,blue]=rgb.split(',').map(Number);
+   return (red>green+40&&blue>green+30)||(blue>green+25&&green>red+30); // snow or wet radar without a matching phase cell
+  }).reduce((total,[,count])=>total+count,0);
+  assert.ok(wetSamples>100,'satellite must show measured precipitation over the cloud image');
+
   await page.locator('[data-full-layer="doppler"]').click();
   await page.waitForFunction(()=>document.querySelector('#map-layer-title').textContent.includes('Doppler')&&document.querySelector('#map-data-notice').textContent==='Beobachtung');
   assert.match(await page.locator('#map-interval').innerText(),/kein Tornadonachweis/);

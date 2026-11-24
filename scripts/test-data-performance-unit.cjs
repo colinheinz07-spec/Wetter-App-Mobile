@@ -90,7 +90,7 @@ vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`
  const t=now-5*60000,iso=new Date(t).toISOString(),amount=pack([10,10,10,0,-32768,100]),classes=Buffer.from([7,3,255,0,255,9]).toString('base64');
  let builds=0,rendered=null,draws=0;
  const canvas=()=>({getContext:()=>({createImageData:(w,h)=>({data:new Uint8ClampedArray(w*h*4)}),putImageData:im=>{rendered=im.data;builds++}})});
- const c=vm.createContext({Date:TestDate,Map,Math,Number,atob,console,drawObservedField:()=>false,radarBaseTime:()=>t,operaRadarData:null,radarPointData:{time:iso,grid,amount},radarPhaseData:{time:iso,grid:{...grid,missing:255},classes},radarNowcastData:null,document:{createElement:canvas},scheduleMap:()=>{},xy:(x,y)=>[x,y],drawContext:{drawImage:()=>draws++}});
+ const c=vm.createContext({Date:TestDate,Map,Math,Number,atob,console,drawSatelliteClouds:()=>{},satelliteLayerInfo:()=>({}),radarBaseTime:()=>t,operaRadarData:null,radarPointData:{time:iso,grid,amount},radarPhaseData:{time:iso,grid:{...grid,missing:255},classes},radarNowcastData:null,document:{createElement:canvas},scheduleMap:()=>{},xy:(x,y)=>[x,y],drawContext:{drawImage:()=>draws++}});
  vm.runInContext(chunk('const radarCoverage=','function drawRealLiveField'),c);
  const r=s=>vm.runInContext(s,c);
  assert.equal(r('ownRadarObservation().source'),'DWD RY · Phase: DWD HymecNG');
@@ -154,7 +154,7 @@ vm.runInContext(chunk('const realModelFiles=','async function fetchRealModel')+`
  // Numeric radar is reused across zoom and fullscreen; no WMS fallback.
  const radarGrid={west:2,south:45,step:1,nx:2,ny:2,scale:.01,missing:-32768},radarAmount=Buffer.from([100,0,0,0,100,0,100,0]).toString('base64');
  const base=now-10*60000,draws=[];let builds=0;
- const radar=vm.createContext({console,Date:TestDate,Map,Math,Number,atob,drawObservedField:()=>false,base,operaRadarData:{time:new Date(base).toISOString(),grid:radarGrid,amount:radarAmount},radarPointData:null,radarPhaseData:null,radarNowcastData:null,radarBaseTime:()=>base,document:{createElement:()=>({getContext:()=>({createImageData:(w,h)=>({data:new Uint8ClampedArray(w*h*4)}),putImageData:()=>builds++})})},scheduleMap:()=>{},xy:(lon,lat,b)=>[(lon-b.west)*b.w/(b.east-b.west),(b.north-lat)*b.h/(b.north-b.south)],drawContext:{drawImage:(...a)=>draws.push(a)}});
+ const radar=vm.createContext({console,Date:TestDate,Map,Math,Number,atob,drawSatelliteClouds:()=>{},satelliteLayerInfo:()=>({}),base,operaRadarData:{time:new Date(base).toISOString(),grid:radarGrid,amount:radarAmount},radarPointData:null,radarPhaseData:null,radarNowcastData:null,radarBaseTime:()=>base,document:{createElement:()=>({getContext:()=>({createImageData:(w,h)=>({data:new Uint8ClampedArray(w*h*4)}),putImageData:()=>builds++})})},scheduleMap:()=>{},xy:(lon,lat,b)=>[(lon-b.west)*b.w/(b.east-b.west),(b.north-lat)*b.h/(b.north-b.south)],drawContext:{drawImage:(...a)=>draws.push(a)}});
  vm.runInContext(chunk('const radarCoverage=','function drawRealLiveField'),radar);
  const r=s=>vm.runInContext(s,radar);
  r("const time=new Date(radarBaseTime()),a={west:2,south:45,east:18,north:57,w:360,h:160},b={west:7,south:49,east:9,north:51,w:800,h:600};drawRealRadar(drawContext,a,time);drawRealRadar(drawContext,b,time)");

@@ -628,7 +628,7 @@ const liveLayers={
  gust:{label:'Windböen · 10 m',unit:'km/h',stops:[0,5,10,20,30,40,60,80,100],colors:['#e6f1df','#92d7b9','#53bfaa','#3e99b6','#6654b4','#b74d9d','#f18b60','#f4d76b','#9e3e43']},
  lightning:{label:'Blitzaktivität · letzte 30 Min.',unit:'Alter',stops:['0–5 min','5–15 min','15–30 min'],colors:['#ffec55','#ffaa3b','#e97143']}
 };
-let mapSource='model',liveLayer='radar',liveScenario='winter',liveMinute=0,liveLightning=false,liveSymbols=true,liveTempDay=0,liveTempHour=12,liveRadarDaily=false;
+let mapSource='model',liveLayer='satellite',liveScenario='winter',liveMinute=0,liveLightning=false,liveSymbols=true,liveTempDay=0,liveTempHour=12,liveRadarDaily=false;
 const liveTimeBases={winter:Date.UTC(2026,10,15,12,0),summer:Date.UTC(2026,6,15,14,0)};
 const nowcastLayers=new Set(['radar','types','snowfall']);
 const imageLayers=new Set(['reflectivity','satellite','doppler','sunshine','solar']);
@@ -730,8 +730,8 @@ const liveRGB=new Map();
 function rgbForLive(hex){if(!liveRGB.has(hex))liveRGB.set(hex,[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)));return liveRGB.get(hex)}
 let liveBuffer=null,liveRasterKey='';
 function drawLiveBase(ctx,b){
- ctx.fillStyle='#9bbacb';ctx.fillRect(0,0,b.w,b.h);
- ctx.fillStyle='#91b780';
+ ctx.fillStyle='#7e9faf';ctx.fillRect(0,0,b.w,b.h);
+ ctx.fillStyle='#739369';
  for(const f of mapBoundaries){const polys=f.geometry.type==='Polygon'?[f.geometry.coordinates]:f.geometry.coordinates;for(const poly of polys){ctx.beginPath();for(const ring of poly)pathRing(ctx,ring,b);ctx.fill('evenodd')}}
 }
 function drawLiveField(ctx,b,fast){
@@ -832,7 +832,7 @@ function drawLiveStrikes(ctx,b){
  ctx.restore();
 }
 function liveSampleText(lon,lat){
- if(liveLayer==='satellite'&&realLiveEnabled){const f=WeatherObservation.cloudField(),v=WeatherObservation.sampleField(f,[lon,lat]),frame=readyRadarFrame(ownRadarFrame(new Date(radarBaseTime()),true),'radar',true),r=frame&&ownRadarPixel(frame,[lon,lat]);return (Number.isFinite(v)?(v===0?'Wolkenfrei':Math.round(v)+' % Wolkenopazität'):'Keine Wolkenmaskendaten')+' · '+(r?radarTypeNames[r.code]+' · '+localFormat(r.rate)+' mm/h':'Keine Radarmessung am Punkt');}
+ if(liveLayer==='satellite'&&realLiveEnabled){const info=satelliteLayerInfo(),v=WeatherObservation.sampleField(info.mask,[lon,lat]),frame=readyRadarFrame(ownRadarFrame(new Date(radarBaseTime()),true),'radar',true),r=frame&&ownRadarPixel(frame,[lon,lat]);return (Number.isFinite(v)?(v===0?'Wolkenfrei':Math.round(v)+' % Wolkenopazität') :info.useImage?'Satellitenbild':'Keine Wolkenmaskendaten')+' · '+(r?radarTypeNames[r.code]+' · '+localFormat(r.rate)+' mm/h':'Keine Radarmessung am Punkt');}
  if(solarLayers.has(liveLayer)){const p=currentLiveImage(),v=solarValue(p,[lon,lat]);return Number.isFinite(v)?localFormat(v)+' '+p.unit+' · '+timeText(new Date(p.time))+' · DUETT':'Keine aktuelle Rasteranalyse am Punkt'}
  if(imageLayers.has(liveLayer))return realLiveEnabled?'Bildprodukt · keine numerische Punktabfrage':'Nur als echtes Bildprodukt verfügbar';
  if(typeof realLiveEnabled!=='undefined'&&realLiveEnabled){const info=realLiveInfo();if(!info.available)return 'Keine Daten';if(info.observedGrid){const v=WeatherObservation.mapValue(liveAreaIds[liveLayer],[lon,lat]);return Number.isFinite(v)?displayValue(v,liveLayers[liveLayer].unit)+' '+liveLayers[liveLayer].unit+' · '+info.observedGrid.source:'Außerhalb verfügbarer Analyseabdeckung';}if(info.radar){const frame=readyRadarFrame(ownRadarFrame(info.date,liveMinute===0),liveLayer,liveMinute===0);if(!frame)return 'Radardaten werden geladen / nicht verfügbar';const raw=ownRadarPixel(frame,[lon,lat]),ground=liveMinute===0&&!frame.forecast&&raw?resolveLivePhase([lon,lat],raw,Date.now()):null,sample=ground?.kind==='ground'?{...raw,code:ground.code,source:ground.source+' '+localTime(ground.time,{hour:'2-digit',minute:'2-digit'})+' · Rate: '+raw.source,time:raw.time,estimated:false}:raw;return sample?radarTypeNames[sample.code]+(sample.estimated?' · geschätzt':'')+(Number.isFinite(sample.rate)?' · '+localFormat(sample.rate)+' mm/h':'')+(sample.source?' · '+sample.source:'')+(Number.isFinite(sample.time)?' · '+localTime(sample.time,{hour:'2-digit',minute:'2-digit'}):''):'Keine Rasterdaten am Punkt';}
@@ -909,7 +909,7 @@ function setMapSource(source){
 // Local preview cards and a full-screen presentation of the SAME interactive
 // map. No duplicate map instance, network requests, or forecast state.
 let mapFullScreen=false,mapFullReturn='map',mapFullScroll=0,mapInfoOpen=false;
-const homeMapLayers=[['radar','Niederschlagsradar','Niederschlag in deiner Region'],['temperature','Temperaturkarte','Lufttemperatur · 2 m'],['wind','Windkarte','Windgeschwindigkeit · 10 m']];
+const homeMapLayers=[['radar','Satellit + Niederschlagsradar','Wolken und Niederschlag in deiner Region'],['temperature','Temperaturkarte','Lufttemperatur · 2 m'],['wind','Windkarte','Windgeschwindigkeit · 10 m']];
 const homePreviewCache=new Map();
 function homeLocationPoint(place){
  if(Number.isFinite(place.lon)&&Number.isFinite(place.lat))return [place.lon,place.lat];
@@ -992,9 +992,10 @@ function exitMapFull(){
 }
 function openHomeMap(id){
  if(!homeMapLayers.some(p=>p[0]===id))return;
- stopPlay();endMapGesture();mapSource='live';liveLayer=id;liveScenario='winter';resetLiveTime();terrainMode='weather-relief';
+ stopPlay();endMapGesture();mapSource='live';liveLayer=id==='radar'?'satellite':id;liveScenario='winter';resetLiveTime();terrainMode='weather-relief';
  if(typeof weatherRealEnabled!=='undefined'&&weatherRealEnabled){realLiveEnabled=true;el('map-live-data-mode').value='real';resetLiveTime()}
- el('map-live-layer').value=id;el('map-live-scenario').value=liveScenario;el('map-terrain-mode').value=terrainMode;
+ if(liveLayer==='satellite'&&realLiveEnabled)fetchLiveImagery();
+ el('map-live-layer').value=liveLayer;el('map-live-scenario').value=liveScenario;el('map-terrain-mode').value=terrainMode;
  mapRegion='Deutschland';mapZoom=3.2;const point=homeLocationPoint(location);mapCenter=null;mapPoint=point;mapPointName=point?location.name:'';
  if(point){const b=baseBounds();if(point[0]<b.west||point[0]>b.east||point[1]<b.south||point[1]>b.north){mapRegion='Europa';mapZoom=13}}
  // Use the selected town as the camera anchor; adjust against full-size bounds.
@@ -3308,8 +3309,31 @@ function nativeAreaFrame(at,id,point,germany=true){
 function prepareLiveArea(germany=true){
  for(const model of germany?['ICON-D2','ICON-EU']:['ICON-EU','IFS'])fetchNativeMapModel(model,false,germany);
 }
+function satelliteLayerInfo(){
+ const mask=WeatherObservation.cloudField();
+ const image=currentLiveImage('satellite');
+ const imageTime=Date.parse(image?.time);
+ const ready=image&&prepareLiveImage('satellite',image).state==='ready';
+ const useImage=ready&&(!mask||imageTime>=mask.time);
+ return {
+  satellite:true, useImage, mask:useImage?null:mask,
+  date:new Date(useImage?imageTime:mask?.time??NaN),
+  source:useImage?image.source:mask?.source||'DWD / EUMETSAT',
+  available:useImage||!!mask, kind:'Beobachtung'
+ };
+}
+function drawSatelliteClouds(ctx,b,info){
+ if(info.useImage){
+  ctx.save();
+  ctx.globalAlpha=0.85;
+  drawLiveImage(ctx,b,'satellite');
+  ctx.restore();
+ }else if(info.mask){
+  drawObservedField(ctx,b,'cloud');
+ }
+}
 function realLiveInfo(){
- if(liveLayer==='satellite'){const cloud=WeatherObservation.cloudField(),p=currentLiveImage();return {date:new Date(cloud?.time??p?.time??NaN),satellite:true,available:!!cloud||!!p,source:cloud?.source||p?.source||'DWD / EUMETSAT',kind:'Beobachtung'}}
+ if(liveLayer==='satellite')return satelliteLayerInfo();
  if(imageLayers.has(liveLayer)){if(liveLayer==='doppler')fetchDoppler();else if(solarLayers.has(liveLayer))fetchSolar();const p=currentLiveImage();return {date:new Date(p?.time||NaN),image:true,available:!!p,source:p?.source||(solarLayers.has(liveLayer)?'DUETT · Rasteranalyse':liveLayer==='satellite'?'EUMETSAT / NASA':liveLayer==='doppler'?'DWD VRADH · Radialwind':'DWD DMAX'),kind:'Beobachtung'}}
  const date=realLiveTime(),radar=['radar','types','snowfall'].includes(liveLayer)&&!liveHourlyMode();
  if(radar){const t=radarBaseTime();return {date,radar:true,available:Number.isFinite(t)&&Date.now()-t<60*60000,source:'EUMETNET OPERA / MeteoSwiss / DWD',kind:liveMinute>0?'Radarprognose':'Radar-Messung'}}
@@ -3667,7 +3691,7 @@ function ownRadarDescription(frame){const scans=frame?.rateSources?.map(s=>s.sou
 
 function drawRealRadar(ctx,b,date,onChange=scheduleMap,allowOlder=false,mode='radar',cloud=true){
  const requested=ownRadarFrame(date,allowOlder);
- if(cloud&&mode==='radar')drawObservedField(ctx,b,'cloud');
+ if(cloud&&mode==='radar')drawSatelliteClouds(ctx,b,satelliteLayerInfo());
  try{if(requested)ownRadarRaster(requested,mode);const frame=readyRadarFrame(requested,mode,allowOlder),img=frame&&ownRadarRaster(frame,mode);if(img){const g=frame.grid,[x,y]=xy(g.west-g.step/2,g.south+(g.ny-.5)*g.step,b),[right,bottom]=xy(g.west+(g.nx-.5)*g.step,g.south-g.step/2,b),smooth=ctx.imageSmoothingEnabled;ctx.imageSmoothingEnabled=false;ctx.drawImage(img,x,y,right-x,bottom-y);ctx.imageSmoothingEnabled=smooth;return frame.key===requested?.key?'ready':'cached'}}catch{}
  if(!requested&&typeof fetch==='function'){if(allowOlder){fetchOperaRadar();fetchSwissRadar();if(!ownRadarFresh(radarPointData,12))fetchBrightRadar()}else fetchNowcastMapFrame(date)}
  return 'loading';
@@ -3678,7 +3702,7 @@ function prefetchNextRadar(date){
 }
 function smoothGust(d,p,pos,h){const g=d.grid,x=(pos[0]-g.west)/g.step,y=(pos[1]-g.south)/g.step,i=Math.floor(x),j=Math.floor(y),u=x-i,v=y-j;const a=[[i,j,(1-u)*(1-v)],[i+1,j,u*(1-v)],[i,j+1,(1-u)*v],[i+1,j+1,u*v]];let sum=0;for(const [k,l,w] of a){if(w<1e-8)continue;const z=realModelValue(d,p,g.west+k*g.step,g.south+l*g.step,h);if(!Number.isFinite(z))return realModelValue(d,p,...pos,h);sum+=z*w;}return sum;}
 function drawRealLiveField(ctx,b,fast){
- const info=realLiveInfo();if(info.satellite){if(!drawObservedField(ctx,b,'cloud')&&currentLiveImage())drawLiveImage(ctx,b,'satellite');drawRealRadar(ctx,b,new Date(radarBaseTime()),scheduleMap,true,'radar',false);return}if(liveAreaIds[liveLayer]&&!info.observedGrid&&!info.radar)prepareLiveArea(mapRegion==='Deutschland');if(!info.available)return;
+ const info=realLiveInfo();if(info.satellite){drawSatelliteClouds(ctx,b,info);drawRealRadar(ctx,b,new Date(radarBaseTime()),scheduleMap,true,'radar',false);return}if(liveAreaIds[liveLayer]&&!info.observedGrid&&!info.radar)prepareLiveArea(mapRegion==='Deutschland');if(!info.available)return;
  if(info.image){drawLiveImage(ctx,b,liveLayer);return}
  if(info.radar){const status=drawRealRadar(ctx,b,info.date,scheduleMap,liveMinute===0,liveLayer);if(!fast)prefetchNextRadar(info.date);return}
  if(info.observedGrid){drawObservedField(ctx,b,liveAreaIds[liveLayer]);return}
@@ -3708,7 +3732,7 @@ function drawObservedField(ctx,b,id){
 function realLiveLabels(){
  const info=realLiveInfo(),valid=Number.isFinite(info.date.getTime());
  document.querySelector('.live-map-note').textContent='Echte Beobachtungen und messdatengestützte Analysen; Modellprognosen getrennt gekennzeichnet. Zeitstempel und Datenverfügbarkeit je Produkt.';
- if(info.satellite){const cloud=WeatherObservation.cloudField(),frame=readyRadarFrame(ownRadarFrame(new Date(radarBaseTime()),true),'radar',true),status=cloud||currentLiveImage()?'Beobachtung':'Wolkenbild nicht verfügbar';el('map-layer-title').textContent='Satellitenwolken + Niederschlagsradar';el('map-model-badge').textContent=status;el('map-overlay-model').textContent=info.source;el('map-overlay-data').textContent=frame?'Radar-Messung': 'Radar lädt / nicht verfügbar';el('map-data-notice').textContent=status;el('map-valid').textContent=(valid?'Satellit: '+timeText(info.date):'Satellit: keine Daten')+' · '+(frame?'Radar: '+timeText(new Date(frame.time)):'Radar: keine Daten');el('map-view-description').textContent='Unabhängige Satelliten- und Radarbeobachtungen';el('map-interval').textContent='Grün: Land, weiß: Satellitenwolken, grau: fehlende Daten; farbiger Niederschlag aus Radar. Wolkenfrei bedeutet nicht zwingend Sonnenschein.';el('map-time-label').textContent='Letzte Beobachtungen';return}
+ if(info.satellite){const frame=readyRadarFrame(ownRadarFrame(new Date(radarBaseTime()),true),'radar',true),status=info.available?'Beobachtung':'Wolkenbild nicht verfügbar';el('map-layer-title').textContent='Satellitenwolken + Niederschlagsradar';el('map-model-badge').textContent=status;el('map-overlay-model').textContent=info.source;el('map-overlay-data').textContent=frame?'Radar-Messung': 'Radar lädt / nicht verfügbar';el('map-data-notice').textContent=status;el('map-valid').textContent=(valid?'Satellit: '+timeText(info.date):'Satellit: keine Daten')+' · '+(frame?'Radar: '+timeText(new Date(frame.time)):'Radar: keine Daten');el('map-view-description').textContent='Unabhängige Satelliten- und Radarbeobachtungen';el('map-interval').textContent='Farbige Niederschlagsflächen zeigen die Radarmessung über dem Satellitenbild. Beide Messzeiten stehen oben.';el('map-time-label').textContent='Letzte Beobachtungen';return}
  if(info.observedGrid){const analysis=info.observedGrid.kind==='analysis',stale=info.observedGrid.stale,status=stale?'Letzte Analyse · veraltet':analysis?'DWD · +0 h Analyse':'DWD · Beobachtungsanalyse';el('map-layer-title').textContent=liveLayers[liveLayer].label+' · '+(analysis?'Analyse':'Beobachtungsanalyse');el('map-model-badge').textContent=status;el('map-overlay-model').textContent=info.source;el('map-overlay-data').textContent=status;el('map-data-notice').textContent=status;el('map-valid').textContent=info.kind+': '+timeText(info.date);el('map-view-description').textContent=info.source;el('map-interval').textContent=stale?'Letzte verfügbare 2,2-km-Analyse, nicht der aktuelle Ist-Zustand. Aktualisierung ausstehend; keine Warnableitung aus veralteten Feldern.':analysis?'Flächendeckende aktuelle 2,2-km-Analyse mit Messdaten und Modellhintergrund; keine Vorhersage. Grau: außerhalb der Datenabdeckung.':'Stationsbasierte Ersatzdarstellung; grau: keine ausreichenden Beobachtungen.';el('map-time-label').textContent=stale?'Letzte verfügbare Analyse':'Aktuelle Analyse';return}
  if(solarLayers.has(liveLayer)){const p=currentLiveImage(),state=liveImageCache.get(liveLayer)?.state,status=p&&state==='ready'?'Rasteranalyse':solarRequest?'Rasteranalyse lädt …':'Keine aktuelle Rasteranalyse';el('map-layer-title').textContent=liveLayers[liveLayer].label;el('map-model-badge').textContent=status;el('map-overlay-model').textContent=info.source;el('map-overlay-data').textContent=status;el('map-data-notice').textContent=status;el('map-valid').textContent=p?'Messintervall: '+timeText(new Date(p.start))+' – '+timeText(new Date(p.time)):'Keine gültige Datenzeit';el('map-view-description').textContent='DUETT · Satelliten- und Bodenmessungen · 2 km · CC BY 4.0';el('map-interval').textContent=liveLayer==='sunshine'?'Beobachtungsbasierte Sonnenscheindauer in Minuten während der letzten verfügbaren Stunde; keine Vorhersage.':'Beobachtungsbasierte mittlere Globalstrahlung während der letzten verfügbaren Stunde; keine Momentanmessung.';el('map-time-label').textContent='Letzte verfügbare Stunde';return}
  if(info.image){const p=currentLiveImage(),state=liveImageCache.get(liveLayer)?.state,status=!info.available?((liveLayer==='doppler'?dopplerRequest:liveImageryRequest)?'Bild wird geladen …':'Kein aktuelles Bild verfügbar'):state==='ready'?'Beobachtung':state==='error'?'Bild konnte nicht geladen werden':'Bild wird geladen …';el('map-layer-title').textContent=liveLayers[liveLayer].label;el('map-model-badge').textContent=status;el('map-overlay-model').textContent=info.source;el('map-overlay-data').textContent=status;el('map-data-notice').textContent=status;el('map-valid').textContent=valid?'Messzeit: '+timeText(info.date):'Keine gültige Datenzeit';el('map-view-description').textContent=info.source;el('map-interval').textContent=liveLayer==='doppler'?'Radialwind in m/s · Grün: zum Radar · Rot: vom Radar weg. '+(p?'Elevation '+p.elevation+'° · ':'')+'Nebeneinanderliegende Gegengeschwindigkeiten können Rotation andeuten; kein Tornadonachweis. Faltungs-/Störeffekte möglich.':liveLayer==='satellite'?'GeoColour: Wolkenbild (Tag / Nacht), keine Radarreflektivität.':'DWD DMAX: maximales Radarecho in dBZ in der vertikalen Luftsäule, keine Niederschlagsrate.';el('map-time-label').textContent='Letzte Beobachtung';return}
