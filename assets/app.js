@@ -2622,7 +2622,17 @@ function forecastCalendarDays(point,now,current=null){
  if(typeof WeatherObservation!=='undefined'&&point){
  const d=days[0],height=observationHeight(point),history=WeatherObservation.localTemperatureSeries?.(point,height,d.start,now)||[];
   const extrema=todayDaytimeExtremes(d,point,height,now,current);
-  d.hi=extrema.hi;d.maxHour=extrema.maxHour;d.observationCount=extrema.observedCount;d.futureDaytimeCount=extrema.futureCount;d.highIncomplete=extrema.incomplete;
+  d.hi=extrema.hi;d.maxHour=extrema.maxHour;
+  const afternoon=d.periods[2];
+  const afternoonHistory=extrema.history.filter(r=>r.time>=afternoon.start&&r.time<afternoon.end);
+  const afternoonFuture=afternoon.temperatureHours.filter(h=>h.start>=Math.floor(now/HOUR_MS)*HOUR_MS&&h.end>now&&!h.currentHour);
+  const afternoonExtrema=WeatherObservation.combineDayTemperature(afternoonHistory,afternoonFuture,now);
+  if(now>=afternoon.start){
+   const covered=afternoonHistory.length>=2||afternoonFuture.length>0;
+   afternoon.hi=covered&&Number.isFinite(d.hi)&&Number.isFinite(afternoonExtrema.hi)?Math.min(d.hi,afternoonExtrema.hi):NaN;
+   afternoon.maxHour=Number.isFinite(afternoon.hi)?afternoonExtrema.maxHour:null;
+  }
+d.observationCount=extrema.observedCount;d.futureDaytimeCount=extrema.futureCount;d.highIncomplete=extrema.incomplete;
   const nightHistory=WeatherObservation.localTemperatureSeries?.(point,height,d.night.start,Math.min(now,d.night.end))||[],nightFuture=d.periods[0].temperatureHours.filter(h=>h.end>now&&!h.currentHour),night=WeatherObservation.combineDayTemperature(nightHistory,nightFuture,now);
   if(nightHistory.length>=2||nightFuture.length){d.lo=night.lo;d.minHour=night.minHour;d.night={...d.night,lo:night.lo,minHour:night.minHour,complete:nightHistory.length>=2&&nightFuture.every(h=>Number.isFinite(h.temperature)),source:nightHistory.length>=2?'local-observations':'forecast'};}
   const end=Math.floor(now/(5*60000))*5*60000,observed=WeatherObservation.accumulation(point,d.start,end);
