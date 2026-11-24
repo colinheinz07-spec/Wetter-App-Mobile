@@ -2115,9 +2115,9 @@ async function fetchRadarNowcast(){
 function fetchNowcastMapFrame(date){
  const time=date.getTime();if(!Number.isFinite(time)||time<=radarBaseTime()||time>Date.now()+120*60000){fetchBrightRadarFrame(date);return;}
  if(nowcastFramePending.has(time))return nowcastFramePending.get(time);
- if(nowcastFramePending.size>=2)return;
+ if(nowcastFramePending.size>=3)return;
  const task=workerNowcast('frame',{time}).then(d=>{
-  if(d){nowcastMapFrames.set(time,d);while(nowcastMapFrames.size>3)nowcastMapFrames.delete(nowcastMapFrames.keys().next().value);refreshOwnRadarViews()}
+  if(d){nowcastMapFrames.set(time,d);while(nowcastMapFrames.size>6)nowcastMapFrames.delete(nowcastMapFrames.keys().next().value);refreshOwnRadarViews()}
   else fetchBrightRadarFrame(date);
  }).finally(()=>nowcastFramePending.delete(time));nowcastFramePending.set(time,task);return task;
 }
@@ -3286,7 +3286,7 @@ function realLiveInfo(){
  const models=mapRegion==='Europa'?forecastPriority.filter(m=>m!=='ICON-D2'):forecastPriority,atCurrent=liveTempDay===0&&liveTempHour===new Date().getUTCHours();
  const id=liveAreaIds[liveLayer],center=mapCenter||[10,51];
  if(atCurrent&&['temp2','gust'].includes(id)&&typeof WeatherObservation!=='undefined'){
-  const observedGrid=WeatherObservation.mapField(id);return {date:new Date(observedGrid?.time??NaN),observedGrid,available:!!observedGrid,source:observedGrid?.source||'Keine aktuelle Analyse',kind:observedGrid?.stale?'Letzte verfügbare Analyse (älter als 90 Min.)':observedGrid?.kind==='analysis'?'Messdatengestützte Analyse (+0 h)':'Beobachtungsanalyse'};
+  const observedGrid=WeatherObservation.mapField(id);if(observedGrid||id!=='gust')return {date:new Date(observedGrid?.time??NaN),observedGrid,available:!!observedGrid,source:observedGrid?.source||'Keine aktuelle Analyse',kind:observedGrid?.stale?'Letzte verfügbare Analyse (älter als 90 Min.)':observedGrid?.kind==='analysis'?'Messdatengestützte Analyse (+0 h)':'Beobachtungsanalyse'};
  }
  let model=id?(nativeAreaFrame(date.getTime(),id,center,mapRegion==='Deutschland')||(atCurrent?currentGridFrame([10,51],Date.now(),models):chooseLocationModel(date.getTime(),[10,51],false,models))):null;
  if(model?.d.pointLocation)model=null;
@@ -3645,18 +3645,19 @@ function prefetchNextRadar(date){
  if(document.hidden||navigator.connection?.saveData||liveMinute>=90)return;
  const next=new Date(date.getTime()+300000),frame=ownRadarFrame(next);if(frame&&!radarRasterJob)ownRadarRaster(frame,liveLayer);else if(!frame&&!brightRadarPending.size)fetchNowcastMapFrame(next);
 }
+function smoothGust(d,p,pos,h){const g=d.grid,x=(pos[0]-g.west)/g.step,y=(pos[1]-g.south)/g.step,i=Math.floor(x),j=Math.floor(y),u=x-i,v=y-j;const a=[[i,j,(1-u)*(1-v)],[i+1,j,u*(1-v)],[i,j+1,(1-u)*v],[i+1,j+1,u*v]];let sum=0;for(const [k,l,w] of a){if(w<1e-8)continue;const z=realModelValue(d,p,g.west+k*g.step,g.south+l*g.step,h);if(!Number.isFinite(z))return realModelValue(d,p,...pos,h);sum+=z*w;}return sum;}
 function drawRealLiveField(ctx,b,fast){
  const info=realLiveInfo();if(info.satellite){if(!drawObservedField(ctx,b,'cloud')&&currentLiveImage())drawLiveImage(ctx,b,'satellite');drawRealRadar(ctx,b,new Date(radarBaseTime()),scheduleMap,true,'radar',false);return}if(liveAreaIds[liveLayer]&&!info.observedGrid&&!info.radar)prepareLiveArea(mapRegion==='Deutschland');if(!info.available)return;
  if(info.image){drawLiveImage(ctx,b,liveLayer);return}
- if(info.radar){if(drawRealRadar(ctx,b,info.date,scheduleMap,liveMinute===0,liveLayer)==='ready'&&!fast)prefetchNextRadar(info.date);return}
+ if(info.radar){const status=drawRealRadar(ctx,b,info.date,scheduleMap,liveMinute===0,liveLayer);if(!fast&&(status==='ready'||status==='cached'))prefetchNextRadar(info.date);return}
  if(info.observedGrid){drawObservedField(ctx,b,liveAreaIds[liveLayer]);return}
  if(!info.model)return;
  const id=liveAreaIds[liveLayer],d=info.model.d,p=fields[id],hour=info.model.hour;
  if(d.nativeMap&&!nativeFieldsReady(d,p,hour)){fetchNativeMapFields(d,p,hour);return}
- const w=Math.max(2,Math.round(b.w/(fast?8:4))),h=Math.max(2,Math.round(b.h/(fast?8:4))),c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d'),im=x.createImageData(w,h);
+ const w=Math.max(2,Math.round(b.w/(fast?5:2))),h=Math.max(2,Math.round(b.h/(fast?5:2))),c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d'),im=x.createImageData(w,h);
  if(['types','snowfall'].includes(liveLayer)&&d.nativeMap)for(const key of ['temp2','dew','rh2','ww','ptype'])if(d.frames[hour]?.[key]&&!d.decoded.has(hour+'/'+key))fetchNativeMapFields(d,{id:key,interval:0},hour);
  const param=id==='rainrate'?{...p,mapIntervalHours:mapInterval(d,id,hour)}:p;
- for(let j=0;j<h;j++)for(let i=0;i<w;i++){const pos=lonlat((i+.5)/w*b.w,(j+.5)/h*b.h,b),v=realModelValue(d,param,...pos,hour),s=liveLayer==='temperature'?{temp:v}:liveLayer==='wind'?{wind:v}:liveLayer==='radar'?{rate:v}:{cover:v};if(!Number.isFinite(v))continue;
+ for(let j=0;j<h;j++)for(let i=0;i<w;i++){const pos=lonlat((i+.5)/w*b.w,(j+.5)/h*b.h,b),v=id==='gust'?smoothGust(d,param,pos,hour):realModelValue(d,param,...pos,hour),s=liveLayer==='temperature'?{temp:v}:liveLayer==='wind'?{wind:v}:liveLayer==='radar'?{rate:v}:{cover:v};if(!Number.isFinite(v))continue;
   let color;if(['types','snowfall'].includes(liveLayer)){if(v<=0)continue;const f={d,hour,time:info.model.time,point:pos},code=modelPhaseAtPoint(f,true);if(liveLayer==='snowfall'&&![6,7].includes(code))continue;color=(ownRadarColors[code]||ownRadarColors[1])[liveLayer==='types'?2:ownRadarTier(v)]}else color=liveColor(liveLayer,s);if(!color)continue;const rgb=rgbForLive(color),n=(j*w+i)*4;im.data[n]=rgb[0];im.data[n+1]=rgb[1];im.data[n+2]=rgb[2];im.data[n+3]=255;
  }x.putImageData(im,0,0);ctx.drawImage(c,0,0,b.w,b.h);
 }
