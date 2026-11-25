@@ -69,7 +69,7 @@
         <div class="map-main"><canvas id="model-canvas" width="640" height="760" aria-label="Farbige Wetterkarte mit Ländergrenzen"></canvas><div class="map-overlay"><span id="map-overlay-model">ICON-D2</span><span id="map-overlay-data">DEMO</span></div><div class="map-zoom"><button id="map-zoom-plus" aria-label="Hineinzoomen">+</button><span class="zoom-label" id="map-zoom-level">1.0×</span><button id="map-zoom-minus" aria-label="Herauszoomen">−</button><button id="map-zoom-reset" aria-label="Karte zurücksetzen">↺</button></div></div>
         <div class="map-temperature-days" id="map-temperature-days" aria-label="Zeitraum der Wetterkarte" hidden><button id="map-radar-nowcast" aria-pressed="true" hidden>Kurzfrist<br>90 Min.</button><button data-temperature-day="0" aria-pressed="true" class="active">Heute</button><button data-temperature-day="1" aria-pressed="false">Morgen</button><button data-temperature-day="2" aria-pressed="false">Übermorgen</button></div>
         <div class="map-nowcast-key" id="map-nowcast-key" hidden><span>−120 Min.</span><button class="now-anchor" id="map-nowcast-now" aria-label="Zur aktuellen Radarzeit zurückspringen" style="background:none;border:0;padding:0;font:inherit;color:var(--text);text-decoration:underline">Jetzt</button><button class="forecast-end" id="map-nowcast-forward" aria-label="90 Minuten in die Radarprognose springen" style="background:none;border:0;padding:0;font:inherit;color:#ffc96c;text-decoration:underline">+90 Min. · Prognose</button></div>
-        <div class="map-actions" id="map-time-controls"><button class="map-play map-step" id="map-back" aria-label="Einen Zeitschritt zurück">‹</button><button class="map-play" id="map-play" aria-label="Vorhersage abspielen">▶</button><div class="map-control"><input type="range" id="map-time" min="0" max="48" value="0" aria-label="Vorhersagezeit"><strong id="map-time-label">+0 Std.</strong></div><button class="map-play map-step" id="map-next" aria-label="Einen Zeitschritt vor">›</button></div>
+        <div class="map-actions" id="map-time-controls"><button class="map-play" id="satellite-now" type="button" hidden>Jetzt</button><button class="map-play map-step" id="map-back" aria-label="Einen Zeitschritt zurück">‹</button><button class="map-play" id="map-play" aria-label="Vorhersage abspielen">▶</button><div class="map-control"><input type="range" id="map-time" min="0" max="48" value="0" aria-label="Vorhersagezeit"><strong id="map-time-label">+0 Std.</strong></div><button class="map-play map-step" id="map-next" aria-label="Einen Zeitschritt vor">›</button></div>
         <div class="map-sample" id="map-sample"><span>Tippe auf die Karte, um einen Beispielwert abzulesen.</span></div>
         <div id="map-info-panel"><div class="map-info-head"><h2>Karteninformationen</h2><button id="map-info-close" aria-label="Informationen schließen">×</button></div><p id="map-info-summary" class="map-info-summary"></p><div id="map-interval" class="map-interval"></div>
         <div class="map-hint" id="map-gesture-hint">Ziehen zum Verschieben · Zwei Finger zum Zoomen · Antippen zum Ablesen eines Modellrasterwerts</div>
@@ -125,7 +125,8 @@
 <script src="assets/geography.js"></script>
 <script src="assets/weather-icons.js?v=20261122-cloud-fraction"></script>
 <script src="assets/observations.js?v=08476059737f"></script>
-<script src="assets/app.js?v=5b626f1135d9"></script>
+<script src="assets/satellite-timeline.js?v=85f78faa4ad1"></script>
+<script src="assets/app.js?v=9ae122640b03"></script>
 <script src="assets/hazards.js?v=f7b1d159863b" defer></script>
 <script src="assets/national-warnings.js?v=20261122-observed-frost" defer></script>
 </body>

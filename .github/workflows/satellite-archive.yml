@@ -1,0 +1,44 @@
+name: Meteosat GeoColour archive
+on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+    branches: [main]
+    paths: ['scripts/ingest-satellite-archive.py', '.github/workflows/satellite-archive.yml']
+permissions:
+  contents: write
+concurrency:
+  group: mobile-satellite-archive
+  cancel-in-progress: false
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pillow h5py numpy pyproj
+      - name: Refresh verified frames and publish one rolling tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref=refs/heads/mobile-satellite-archive
+          dir="$RUNNER_TEMP/satellite-archive"
+          previous=$(git ls-remote --heads origin "$ref" | cut -f1)
+          if [[ -n "$previous" ]]; then
+            git fetch --depth=1 origin "$previous"
+            test "$(git log -1 --format=%s "$previous")" = "Generated satellite imagery archive"
+            git worktree add --detach "$dir" "$previous"
+          else
+            git worktree add --orphan -b archive-build "$dir"
+          fi
+          python scripts/ingest-satellite-archive.py "$dir"
+          git -C "$dir" add -A
+          tree=$(git -C "$dir" write-tree)
+          if [[ -n "$previous" && "$tree" = "$(git rev-parse "$previous^{tree}")" ]]; then exit 0; fi
+          git config user.name 'Wetter Mobile Data'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          commit=$(git commit-tree "$tree" -m 'Generated satellite imagery archive')
+          git push --force-with-lease="$ref:$previous" origin "$commit:$ref"

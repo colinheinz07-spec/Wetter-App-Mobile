@@ -37,6 +37,22 @@ const {chromium}=require('playwright'),assert=require('node:assert/strict'),path
   assert.equal(await page.evaluate(()=>WeatherObservation.sampleField(WeatherObservation.cloudField(),[7.95,50.65])),100);
   await page.screenshot({path:'ui-ipad-live-satellite.png'});
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+3),'iPad overflow');
+  await page.locator('#map-full-open').click();
+  const slider=page.locator('#map-time');
+  assert.ok(await slider.isVisible());
+  assert.equal(await slider.getAttribute('min'),'-1440');
+  assert.equal(await slider.getAttribute('max'),'120');
+  const selectMinute=minute=>slider.evaluate((el,value)=>{el.value=value;el.dispatchEvent(new Event('input',{bubbles:true}))},minute);
+  await selectMinute(-1440);
+  await page.waitForFunction(()=>document.querySelector('#map-data-notice').textContent==='Rückblick');
+  assert.match(await page.locator('#map-overlay-model').textContent(),/Wolkendaten fehlen/);
+  await selectMinute(120);
+  await page.waitForFunction(()=>document.querySelector('#map-data-notice').textContent==='Vorhersage');
+  assert.match(await page.locator('#map-time-label').textContent(),/120 min/);
+  assert.match(await page.locator('#map-overlay-model').textContent(),/Wolkendaten fehlen/);
+  await page.locator('#satellite-now').click();
+  await page.waitForFunction(()=>document.querySelector('#map-data-notice').textContent==='Beobachtung');
+  assert.equal(await slider.inputValue(),'0');
   assert.deepEqual(errors,[]);await context.close();console.log('PASS: iPad-sized real app, independent SYNOP phase, actual balance and observed frost warning');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1});

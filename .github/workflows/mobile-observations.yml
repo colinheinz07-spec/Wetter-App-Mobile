@@ -69,3 +69,5 @@ jobs:
     uses: ./.github/workflows/doppler-radar.yml
   storm_tracking:
     uses: ./.github/workflows/storm-tracking.yml
+  satellite_archive:
+    uses: ./.github/workflows/satellite-archive.yml
