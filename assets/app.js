@@ -2106,7 +2106,7 @@ function workerNowcast(type,details){
    nowcastWorker.onmessage=({data})=>{const entry=nowcastMessages.get(data.id);if(entry){nowcastMessages.delete(data.id);clearTimeout(entry.timer);entry.resolve(data.result)}};
    nowcastWorker.onerror=()=>{nowcastWorker?.terminate();nowcastWorker=null;for(const e of nowcastMessages.values()){clearTimeout(e.timer);e.resolve(null)}nowcastMessages.clear()};
   }
-  const id=++nowcastMessageId,now=Date.now(),urls=[dataRoot.replace('/main/data/','/radar-nowcast-data/')+'radar-nowcast.json.gz?t='+Math.floor(now/300000),new URL('data/radar-nowcast.json.gz',document.baseURI).href];
+  const id=++nowcastMessageId,now=Date.now(),urls=[mobileRadarRoot+'rv/radar-nowcast.json.gz?t='+Math.floor(now/300000),dataRoot.replace('/main/data/','/radar-nowcast-data/')+'radar-nowcast.json.gz?t='+Math.floor(now/300000),new URL('data/radar-nowcast.json.gz',document.baseURI).href];
   return new Promise(resolve=>{const timer=setTimeout(()=>{nowcastMessages.delete(id);resolve(null)},65000);nowcastMessages.set(id,{resolve,timer});try{nowcastWorker.postMessage({id,type,now,urls,...details})}catch{clearTimeout(timer);nowcastMessages.delete(id);resolve(null)}});
  }catch{return Promise.resolve(null)}
 }

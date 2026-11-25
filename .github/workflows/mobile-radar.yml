@@ -5,7 +5,7 @@ on:
     - cron: '1,6,11,16,21,26,31,36,41,46,51,56 * * * *'
   push:
     branches: [main]
-    paths: ['scripts/ingest-radar-phase.py','scripts/ingest-radar-points.py','scripts/ingest-opera-radar.py','scripts/ingest-swiss-radar.py','assets/app.js','assets/national-warnings.js','.github/workflows/mobile-radar.yml']
+    paths: ['scripts/ingest-radar-phase.py','scripts/ingest-radar-points.py','scripts/ingest-radar-nowcast.py','scripts/ingest-opera-radar.py','scripts/ingest-swiss-radar.py','assets/app.js','assets/national-warnings.js','.github/workflows/mobile-radar.yml']
 permissions:
   contents: write
 jobs:
@@ -20,6 +20,9 @@ jobs:
           - kind: ry
             script: ingest-radar-points.py
             file: radar-points.json.gz
+          - kind: rv
+            script: ingest-radar-nowcast.py
+            file: radar-nowcast.json.gz
           - kind: opera
             script: ingest-opera-radar.py
             file: opera-radar.json.gz
@@ -50,7 +53,10 @@ jobs:
           max_age = 2100 if d.get('product') == 'OPERA-RATE' else 1200
           assert 0 <= age <= max_age, (d.get('product'), t, age, max_age)
           n=g['ny']*g['nx']; i=round((47.4084-g['south'])/g['step'])*g['nx']+round((10.2761-g['west'])/g['step'])
-          if 'classes' in d:
+          if d.get('product') == 'RV':
+              assert d['intervalMinutes'] == 5 and set(d['frames']) == {str(h) for h in range(5, 121, 5)}
+              assert all(len(base64.b64decode(frame)) == n*2 for frame in d['frames'].values())
+          elif 'classes' in d:
               raw=base64.b64decode(d['classes']); assert len(raw)==n
               print('Oberstdorf surface phase',raw[i], 'scan',d['time'])
           else:
