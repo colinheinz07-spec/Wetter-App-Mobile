@@ -637,7 +637,7 @@ function liveHasDayTabs(){return ['temperature','wind','gust'].includes(liveLaye
 function liveHourlyMode(){return liveHasDayTabs()&&(!nowcastLayers.has(liveLayer)||liveRadarDaily)}
 function liveMaxMinute(){if(liveLayer==='satellite'&&realLiveEnabled)return 120;return nowcastLayers.has(liveLayer)?90:0}
 function liveBaseHour(){return typeof realLiveEnabled!=='undefined'&&realLiveEnabled?new Date().getUTCHours():liveScenario==='summer'?14:12}
-function liveDisplayMinute(){return liveHourlyMode()?liveTempDay*1440+(liveTempHour-liveBaseHour())*60:clamp(liveMinute,-120,liveMaxMinute())}
+function liveDisplayMinute(){return liveHourlyMode()?liveTempDay*1440+(liveTempHour-liveBaseHour())*60:clamp(liveMinute,liveLayer==='satellite'&&realLiveEnabled?-1440:-120,liveMaxMinute())}
 function liveIsFuture(){return liveDisplayMinute()>0}
 function liveTimeKind(){return liveIsFuture()?(liveLayer==='temperature'?'Temperaturprognose':liveLayer==='wind'?'Windprognose':liveLayer==='gust'?'Böenprognose':liveHourlyMode()?'Niederschlagsprognose':'Radarprognose'):'Beobachtung'}
 function resetLiveTime(){liveMinute=0;liveTempDay=0;liveTempHour=liveBaseHour();liveRadarDaily=false}
@@ -912,7 +912,7 @@ function syncLiveTimeControls(){
 }
 function advanceLiveTime(){
  if(liveHourlyMode()){if(liveTempHour===23){liveTempHour=0;liveTempDay=(liveTempDay+1)%3}else liveTempHour++}
- else liveMinute=liveMinute>=liveMaxMinute()?-120:liveMinute+5;
+ else liveMinute=liveMinute>=liveMaxMinute()?(liveLayer==='satellite'&&realLiveEnabled?-1440:-120):liveMinute+5;
 }
 function setMapSource(source){
  stopPlay();endMapGesture();mapSource=source;
@@ -2658,7 +2658,7 @@ function forecastCalendarDays(point,now,current=null){
   d.night=night;d.lo=night.lo;d.minHour=night.minHour;d.hi=daytime.hi;d.maxHour=daytime.maxHour;
  }
  if(typeof WeatherObservation!=='undefined'&&point){
- const d=days[0],height=observationHeight(point),history=WeatherObservation.localTemperatureSeries?.(point,height,d.start,now)||[];
+ const d=days[0],height=observationHeight(point),history=[...(WeatherObservation.localTemperatureSeries?.(point,height,d.start,now)||[])];
   const extrema=todayDaytimeExtremes(d,point,height,now,current);
   d.hi=extrema.hi;d.maxHour=extrema.maxHour;
   const afternoon=d.periods[2];
@@ -2676,10 +2676,10 @@ d.observationCount=extrema.observedCount;d.futureDaytimeCount=extrema.futureCoun
   const end=Math.floor(now/(5*60000))*5*60000,observed=WeatherObservation.accumulation(point,d.start,end);
   const future=hourlyRainWindow(d.periods.flatMap(p=>p.localHours||[]),now,d.end);
   const latest=current?.temperature;
-  if(['observation','analysis','estimate'].includes(latest?.kind)&&Number.isFinite(latest.value)){
-   history.push({time:now,temperature:latest.value});
-   d.hi=Number.isFinite(d.hi)?Math.max(d.hi,latest.value):latest.value;
-   d.lo=Number.isFinite(d.lo)?Math.min(d.lo,latest.value):latest.value;
+  // A current sample can extend the observed calendar-day range, but must not
+  // overwrite a missing daytime maximum or the previous night's minimum.
+  if(['observation','analysis','estimate'].includes(latest?.kind)&&Number.isFinite(latest.value)&&Number.isFinite(latest.time)&&latest.time>=d.start&&latest.time<=Math.min(now,d.end)&&!history.some(x=>x.time===latest.time&&Math.abs(x.temperature-latest.value)<.01)){
+   history.push({time:latest.time,temperature:latest.value});
   }
   d.balance={observed:observed.sum,covered:observed.covered,through:observed.through,complete:observed.complete,remaining:future,temperature:extrema,actualHi:history.length?Math.max(...history.map(r=>r.temperature)):NaN,actualLo:history.length?Math.min(...history.map(r=>r.temperature)):NaN};
   // The user sees an actual partial amount and remaining forecast separately
@@ -3319,7 +3319,7 @@ let forecastCloudCache, lastSatelliteSelection, selectionStarted = 0;
 function satelliteTime(){
  const run = Date.parse(radarNowcastData?.time);
  const recentRun = Number.isFinite(run) && run <= Date.now() && Date.now()-run <= 25*60000;
- const base = liveMinute>0 && recentRun ? run : Math.floor(radarBaseTime()/600000)*600000;
+ const base = recentRun ? run : Math.floor(radarBaseTime()/300000)*300000;
  return base+liveMinute*60000;
 }
 function timelineForecastCloud(time){
@@ -3345,7 +3345,7 @@ function timelineForecastCloud(time){
 }
 const forecastAttempts=new Map();
 function timelineRadar(time){
- if(liveMinute<0)return satelliteFrames.file('radar',time);
+ if(liveMinute<0)return satelliteFrames.file('radar',Math.floor(time/600000)*600000);
  const f=ownRadarFrame(new Date(time));
  if(f?.forecast && f.time===time)return f;
  if(Date.now()-(forecastAttempts.get(time)||0)>60000){
@@ -3357,10 +3357,12 @@ function timelineRadar(time){
 }
 function selectedSatelliteInfo(){
  const time=satelliteTime(), past=liveMinute<0;
- const img=past?satelliteFrames.file('frames',time):null;
+ // Archive products are captured every ten minutes; never invent a five-minute scan.
+ const imageTime=past?Math.floor(time/600000)*600000:NaN;
+ const img=past?satelliteFrames.file('frames',imageTime):null;
  const mask=past?null:timelineForecastCloud(time);
  const frame=timelineRadar(time);
- return {satellite:true,timeline:true,date:new Date(time),img,mask,frame,available:!!(img||mask),source:past?'© EUMETSAT / NASA · GeoColour':mask?.source||'Wolkenprognose'};
+ return {satellite:true,timeline:true,date:new Date(time),img,imageTime,mask,frame,available:!!(img||mask),source:past?'© EUMETSAT / NASA · GeoColour':mask?.source||'Wolkenprognose'};
 }
 function drawTimelineRaster(ctx,b,canvas,bounds){
  const [west,south,east,north]=bounds;
@@ -3384,11 +3386,11 @@ function timelineLabels(info){
  el('map-model-badge').textContent=kind;
  el('map-overlay-model').textContent=info.available?info.source:'Wolkendaten fehlen';
  el('map-overlay-data').textContent=info.frame?info.frame.source:'Radardaten fehlen';
- el('map-valid').textContent=kind+' · '+time;
+ el('map-valid').textContent=kind+' · '+time+(liveMinute<0?' · Satellit: '+(info.img?timeText(new Date(info.imageTime)):'—')+' · Radar: '+(info.frame?timeText(new Date(info.frame.time)):'—'):'');
  el('map-data-notice').textContent=kind;
  el('map-time-label').textContent=time+' · '+(liveMinute>0?'+':'')+liveMinute+' min';
  el('map-view-description').textContent=info.source;
- el('map-interval').textContent=liveMinute<0?'GeoColour-Aufnahme und gemessene Niederschlagsintensität zum gewählten Zeitpunkt.':'Prognostizierter Bedeckungsgrad und Niederschlags-Nowcast zum gewählten Zeitpunkt.';
+ el('map-interval').textContent=liveMinute<0?'GeoColour und Radar: letzte archivierte Zehn-Minuten-Aufnahme zum gewählten Zeitpunkt (max. fünf Minuten zuvor). Messzeiten siehe oben.':'Prognostizierter Bedeckungsgrad und Niederschlags-Nowcast zum gewählten Zeitpunkt.';
 }
 function timelineWaiting(){
  const info=selectedSatelliteInfo(),key=info.date.getTime();
@@ -3432,7 +3434,6 @@ function satelliteLayerInfo(){
 function drawSatelliteClouds(ctx,b,info){
  if(info.useImage){
   ctx.save();
-  ctx.globalAlpha=0.85;
   if(info.img)drawTimelineRaster(ctx,b,info.img,satelliteFrames.bounds);
   else drawLiveImage(ctx,b,'satellite');
   ctx.restore();
@@ -4069,7 +4070,7 @@ function gridSample(p,lon,lat){
  if(!gridCache.has(cell)){const value=demoValue(p.mode,ix*step,iy*step);gridCache.set(cell,{value,color:Number.isFinite(value)?colorAt(p,value):[95,110,125]})}
  return gridCache.get(cell);
 }
-function mapContentKey(){return [mapRegion,mapSource,mapModel,mapRun,mapHour,mapLayer,modelDataMode,realModelRevision,typeof realLiveEnabled!=='undefined'&&realLiveEnabled,typeof radarRevision!=='undefined'&&radarRevision,liveLayer,liveScenario,liveDisplayMinute(),liveLightning,liveSymbols,terrainMode,showDistricts,showPlaces,showRoads,showTerrain,showWater,mapPoint?.join(',')].join('/')}
+function mapContentKey(){return [mapRegion,mapSource,mapModel,mapRun,mapHour,mapLayer,modelDataMode,realModelRevision,typeof realLiveEnabled!=='undefined'&&realLiveEnabled,typeof radarRevision!=='undefined'&&radarRevision,liveLayer,liveScenario,liveDisplayMinute(),liveLayer==='satellite'&&realLiveEnabled&&liveMinute!==0?satelliteTime():0,liveLightning,liveSymbols,terrainMode,showDistricts,showPlaces,showRoads,showTerrain,showWater,mapPoint?.join(',')].join('/')}
 function pressureExtrema(values,g,radius){
  const found=[];for(let y=radius;y<g.ny-radius;y++)for(let x=radius;x<g.nx-radius;x++){
   const center=values[y*g.nx+x];if(!Number.isFinite(center))continue;
