@@ -890,7 +890,7 @@ function syncLiveTimeControls(){
  slider.removeAttribute('aria-valuetext');
  for(const id of ['map-time','map-back','map-next','map-play'])el(id).disabled=false;
  if(liveLayer==='satellite'&&realLiveEnabled){
-  slider.min=-1440;slider.max=120;slider.step=10;slider.value=liveMinute;
+  slider.min=-1440;slider.max=120;slider.step=5;slider.value=liveMinute;
   slider.setAttribute('aria-label','Satellit und Radar, 24 Stunden zurück bis zwei Stunden voraus');
   slider.setAttribute('aria-valuetext',el('map-time-label').textContent);
   return;
@@ -2494,6 +2494,7 @@ function periodNewSnowBounds(p){
 function snowfallText(cm){const bounds=Array.isArray(cm)?cm:[cm,cm];return quantityRange(bounds[0],bounds[1],'cm');}
 function snowfallRangeText(p){const bounds=periodNewSnowBounds(p);return bounds?snowfallText(bounds):'Menge unklar';}
 function forecastPrecipText(p,hours='',compact=false){
+ if(/gefrierender_regen/.test(p.weather?.icon||''))return quantityRange(p.rain)+hours;
  const bounds=periodNewSnowBounds(p),snowIcon=/schnee/.test(p.weather?.icon||'')&&!/nebel/.test(p.weather?.icon||'');
  return bounds?.[0]>0||snowIcon?snowfallRangeText(p)+(compact?'<small class="snow-label">Neuschnee</small>':' Neuschnee')+hours:quantityRange(p.rain)+hours;
 }
@@ -2674,6 +2675,12 @@ d.observationCount=extrema.observedCount;d.futureDaytimeCount=extrema.futureCoun
   if(nightHistory.length>=2||nightFuture.length){d.lo=night.lo;d.minHour=night.minHour;d.night={...d.night,lo:night.lo,minHour:night.minHour,complete:nightHistory.length>=2&&nightFuture.every(h=>Number.isFinite(h.temperature)),source:nightHistory.length>=2?'local-observations':'forecast'};}
   const end=Math.floor(now/(5*60000))*5*60000,observed=WeatherObservation.accumulation(point,d.start,end);
   const future=hourlyRainWindow(d.periods.flatMap(p=>p.localHours||[]),now,d.end);
+  const latest=current?.temperature;
+  if(['observation','analysis','estimate'].includes(latest?.kind)&&Number.isFinite(latest.value)){
+   history.push({time:now,temperature:latest.value});
+   d.hi=Number.isFinite(d.hi)?Math.max(d.hi,latest.value):latest.value;
+   d.lo=Number.isFinite(d.lo)?Math.min(d.lo,latest.value):latest.value;
+  }
   d.balance={observed:observed.sum,covered:observed.covered,through:observed.through,complete:observed.complete,remaining:future,temperature:extrema,actualHi:history.length?Math.max(...history.map(r=>r.temperature)):NaN,actualLo:history.length?Math.min(...history.map(r=>r.temperature)):NaN};
   // The user sees an actual partial amount and remaining forecast separately
   // if a scan is missing. Never silently substitute old model precipitation.
