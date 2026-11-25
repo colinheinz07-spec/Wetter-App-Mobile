@@ -3411,6 +3411,9 @@ function satelliteLayerInfo(){
  const image=currentLiveImage('satellite');
  const imageTime=Date.parse(image?.time);
  const ready=image&&prepareLiveImage('satellite',image).state==='ready';
+ const archive=satelliteFrames.latest(Math.max(Date.now()-45*60000,ready?imageTime:0));
+ if(archive)return {satellite:true,useImage:true,img:archive.img,mask:null,date:new Date(archive.time),
+  source:'© EUMETSAT / NASA · GeoColour',available:true,kind:'Beobachtung'};
  const useImage=Boolean(ready);
  return {
   satellite:true, useImage, mask:useImage?null:mask,
@@ -3423,7 +3426,8 @@ function drawSatelliteClouds(ctx,b,info){
  if(info.useImage){
   ctx.save();
   ctx.globalAlpha=0.85;
-  drawLiveImage(ctx,b,'satellite');
+  if(info.img)drawTimelineRaster(ctx,b,info.img,satelliteFrames.bounds);
+  else drawLiveImage(ctx,b,'satellite');
   ctx.restore();
  }else if(info.mask){
   drawObservedField(ctx,b,'cloud');

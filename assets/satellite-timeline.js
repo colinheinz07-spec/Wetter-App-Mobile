@@ -47,5 +47,12 @@ function archiveFile(kind,time){
  });
  return null;
 }
-return {file:archiveFile,get bounds(){return archiveIndex?.bounds}};
+function latest(minimumTime){
+ loadSatelliteIndex();
+ const stamp=archiveIndex?.frames.at(-1);
+ if(!stamp || stamp*1000<minimumTime || stamp*1000>Date.now())return null;
+ const img=archiveFile('frames',stamp*1000);
+ return img?{img,time:stamp*1000}:null;
+}
+return {file:archiveFile,latest,get bounds(){return archiveIndex?.bounds}};
 }
