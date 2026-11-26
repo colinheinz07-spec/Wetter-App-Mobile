@@ -19,11 +19,11 @@ function loadSatelliteIndex(){
 }
 async function readArchiveFile(kind,stamp){
  if(kind==='frames'){
-  const img=new Image();img.crossOrigin='anonymous';img.src=satelliteArchive+stamp+'.jpg';await img.decode();
+  const img=new Image();img.crossOrigin='anonymous';img.src=satelliteArchive+stamp+'.jpg?v='+Math.floor(Date.now()/300000);await img.decode();
   if(img.naturalWidth!==900||img.naturalHeight!==700)throw Error('Unexpected satellite geometry');
   return img;
  }
- const r=await fetch(satelliteArchive+stamp+'.json.gz',{signal:AbortSignal.timeout(20000)});
+ const r=await fetch(satelliteArchive+stamp+'.json.gz?v='+Math.floor(Date.now()/300000),{signal:AbortSignal.timeout(20000)});
  if(!r.ok)throw Error('Missing radar scan');
  const bytes=await r.arrayBuffer(),header=new Uint8Array(bytes);
  const body=new Blob([bytes]).stream();
@@ -34,9 +34,12 @@ async function readArchiveFile(kind,stamp){
 function archiveFile(kind,time){
  loadSatelliteIndex();
  const stamp=time/1000;
- if(!archiveIndex?.[kind]?.includes(stamp))return null;
+ if(!Number.isInteger(stamp)||stamp%600!==0||!['frames','radar'].includes(kind))return null;
+ // The index is published separately from the objects. For a recent scan,
+ // try the timestamped file even while the index is loading or lagging.
+ if(!archiveIndex?.[kind]?.includes(stamp)&&Date.now()-time>45*60000)return null;
  const key=kind+'/'+stamp, existing=archiveCache.get(key);
- if(existing && (existing.value || existing.pending || Date.now()-existing.started<60000))return existing.value;
+ if(existing && (existing.value || existing.pending || Date.now()-existing.started<15000))return existing.value;
  if([...archiveCache.values()].filter(e=>e.pending).length>=4)return null;
  const entry={started:Date.now(),pending:true,value:null};
  archiveCache.set(key,entry);
@@ -54,5 +57,5 @@ function latest(minimumTime){
  const img=archiveFile('frames',stamp*1000);
  return img?{img,time:stamp*1000}:null;
 }
-return {file:archiveFile,latest,get bounds(){return archiveIndex?.bounds}};
+return {file:archiveFile,latest,pending(kind,time){return archiveIndexPending||Boolean(archiveCache.get(kind+'/'+time/1000)?.pending)},get bounds(){return archiveIndex?.bounds||[1,44,19,58]}};
 }
