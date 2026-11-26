@@ -57,5 +57,10 @@ function latest(minimumTime){
  const img=archiveFile('frames',stamp*1000);
  return img?{img,time:stamp*1000}:null;
 }
-return {file:archiveFile,latest,pending(kind,time){return archiveIndexPending||Boolean(archiveCache.get(kind+'/'+time/1000)?.pending)},get bounds(){return archiveIndex?.bounds||[1,44,19,58]}};
+function latestRadar(minimumTime){
+ loadSatelliteIndex();
+ const stamp=archiveIndex?.radar.filter(t=>t*1000<=Date.now()&&t*1000>=minimumTime).at(-1);
+ return stamp?archiveFile('radar',stamp*1000):null;
+}
+return {file:archiveFile,latest,latestRadar,pending(kind,time){return archiveIndexPending||Boolean(archiveCache.get(kind+'/'+time/1000)?.pending)},get bounds(){return archiveIndex?.bounds||[1,44,19,58]}};
 }
