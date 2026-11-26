@@ -794,7 +794,7 @@ function liveSymbolPath(ctx,type,x,y,r){
 }
 function drawLiveSymbols(ctx,b){
  if(typeof realLiveEnabled!=='undefined'&&realLiveEnabled){
-  if(liveLayer==='satellite'&&liveMinute!==0)return;
+  if(liveLayer==='satellite'&&liveMinute!==0){const f=timelineRadar(satelliteTime());return drawOwnRadarSymbols(ctx,b,f&&readyRadarFrame(f,'radar',false),'radar')}
   if(liveLayer==='satellite')return drawOwnRadarSymbols(ctx,b,readyRadarFrame(ownRadarFrame(new Date(radarBaseTime()),true),'radar',true),'radar');
   if(!['radar','types','snowfall'].includes(liveLayer)||liveHourlyMode())return 0;
   return drawOwnRadarSymbols(ctx,b,readyRadarFrame(ownRadarFrame(realLiveTime(),liveMinute===0),liveLayer,liveMinute===0),liveLayer);
@@ -1007,7 +1007,7 @@ function exitMapFull(){
 }
 function openHomeMap(id){
  if(!homeMapLayers.some(p=>p[0]===id))return;
- stopPlay();endMapGesture();mapSource='live';liveLayer=id==='radar'?'satellite':id;liveScenario='winter';resetLiveTime();terrainMode='weather-relief';
+ stopPlay();endMapGesture();mapSource='live';liveLayer=id==='radar'?'satellite':id==='wind'?'gust':id;liveScenario='winter';resetLiveTime();terrainMode='weather-relief';
  if(typeof weatherRealEnabled!=='undefined'&&weatherRealEnabled){realLiveEnabled=true;el('map-live-data-mode').value='real';resetLiveTime()}
  if(liveLayer==='satellite'&&realLiveEnabled)fetchLiveImagery();
  el('map-live-layer').value=liveLayer;el('map-live-scenario').value=liveScenario;el('map-terrain-mode').value=terrainMode;
@@ -2099,6 +2099,7 @@ async function fetchRadarPoints(){
 // not a cumulative total or a radar image colour. Missing is not zero.
 let radarNowcastData=null,radarNowcastRequest=null,nowcastWorker=null,nowcastMessageId=0,nowcastPointKey='';
 const nowcastMessages=new Map(),nowcastMapFrames=new Map(),nowcastFramePending=new Map();
+let lastNowcastPointCheck=0;
 function workerNowcast(type,details){
  if(typeof Worker!=='function')return Promise.resolve(null);
  try{
@@ -2123,7 +2124,9 @@ function radarForecastRows(d,point,now){
 async function fetchRadarNowcast(){
  if(radarNowcastRequest)return radarNowcastRequest;
  const point=homeLocationPoint(location);if(!point)return;
- const key=pointKey(point);nowcastPointKey=key;
+ const key=pointKey(point);
+ if(key===nowcastPointKey&&Date.now()-lastNowcastPointCheck<30000)return;
+ nowcastPointKey=key;lastNowcastPointCheck=Date.now();
  radarNowcastRequest=workerNowcast('point',{point}).then(d=>{
   if(pointKey(homeLocationPoint(location))!==key)return;
   if(d&&(!radarNowcastData||Date.parse(d.time)>Date.parse(radarNowcastData.time)||d.grid.west!==radarNowcastData.grid.west||d.grid.south!==radarNowcastData.grid.south)){
@@ -2138,7 +2141,7 @@ function fetchNowcastMapFrame(date){
  if(nowcastFramePending.has(time))return nowcastFramePending.get(time);
  if(nowcastFramePending.size>=3)return;
  const task=workerNowcast('frame',{time}).then(d=>{
-  if(d){nowcastMapFrames.set(time,d);while(nowcastMapFrames.size>6)nowcastMapFrames.delete(nowcastMapFrames.keys().next().value);refreshOwnRadarViews()}
+  if(d){nowcastMapFrames.set(time,d);while(nowcastMapFrames.size>12)nowcastMapFrames.delete(nowcastMapFrames.keys().next().value);refreshOwnRadarViews()}
   else fetchBrightRadarFrame(date);
  }).finally(()=>{nowcastFramePending.delete(time);scheduleMap()});nowcastFramePending.set(time,task);return task;
 }
@@ -2579,8 +2582,9 @@ function localPrecipitationHour(point,start,now,block=null,current=null){
  if(!Number.isFinite(rain)&&p?.step>1&&coarse){weather=forecastIcon([coarse],coarse.amount,coarse.hours,frameVal(f,'cloud'),isNightAt((start+end)/2,point));weather={...weather,source:'Modellintervall '+coarse.hours+' h · keine stündlich aufgelöste Niederschlagszeit'};}
  const rainSource=ledger&&start<now?'RADOLAN · Beobachtung + Restprognose':radarUsed?(segments.every(r=>r.source==='DWD RV')?'DWD RV · Radarprognose':'DWD RV + Modell'):'Modell';
  if(radarUsed&&Number.isFinite(rain))weather={...weather,source:rainSource};
- const temperature=ledger&&end<=now?WeatherObservation.temperatureAt(point,observationHeight(point),end):frameVal(f,'temp2');
- return applyCurrentHour({start,end,frame:f,temperature,observed:!!ledger&&end<=now,rain,newSnow:periodNewSnow(p),newSnowBounds:periodNewSnowBounds(p),weather,model:p?.model,step:p?.step,raster:p?.raster,rainSource,radarUsed,segments},current);
+ const elapsed=!!ledger&&end<=now,observation=elapsed?WeatherObservation.temperatureAt(point,observationHeight(point),end):NaN,modelTemperature=frameVal(f,'temp2');
+ const temperature=elapsed&&Number.isFinite(observation)?observation:modelTemperature;
+ return applyCurrentHour({start,end,frame:f,temperature,modelTemperature,observed:elapsed&&Number.isFinite(observation),temperatureEstimated:elapsed&&!Number.isFinite(observation)&&Number.isFinite(modelTemperature),rain,newSnow:periodNewSnow(p),newSnowBounds:periodNewSnowBounds(p),weather,model:p?.model,step:p?.step,raster:p?.raster,rainSource,radarUsed,segments},current);
 }
 // Only the running hour represents the current state. Future hourly endpoints
 // remain forecasts; instantaneous radar rates are never treated as hour totals.
@@ -2651,7 +2655,7 @@ function todayDaytimeExtremes(day,point,height,now,current=null){
  // Missing station coverage is not a reason to discard available model or observed values.
  // Fill only hours lacking local evidence, and explicitly flag estimated maxima.
  const elapsed=day.temperatureHours.filter(h=>h.start>=start&&h.end<=end&&h.end<=now&&!h.currentHour&&Number.isFinite(h.temperature)&&!history.some(r=>r.time>=h.start&&r.time<=h.end));
- const fallback=!reliable?elapsed.map(h=>({...h,estimated:true})):[];
+ const fallback=!reliable?elapsed.map(h=>({...h,observed:false,estimated:true})):[];
  const candidates=[extrema.maxHour,...fallback].filter(h=>Number.isFinite(h?.temperature));
  const maxHour=candidates.reduce((a,b)=>!a||b.temperature>a.temperature?b:a,null);
  return {...extrema,hi:maxHour?.temperature??NaN,maxHour,futureCount:remaining.length,history,incomplete:!reliable,estimated:fallback.length>0};
@@ -2674,7 +2678,7 @@ function forecastCalendarDays(point,now,current=null){
   const afternoonExtrema=WeatherObservation.combineDayTemperature(afternoonHistory,afternoonFuture,now);
   if(now>=afternoon.start){
    const elapsed=afternoon.temperatureHours.filter(h=>h.end<=now&&!h.currentHour&&Number.isFinite(h.temperature)&&!afternoonHistory.some(r=>r.time>=h.start&&r.time<=h.end));
-   const options=[afternoonExtrema.maxHour,...(afternoonHistory.length<2?elapsed.map(h=>({...h,estimated:true})):[])].filter(h=>Number.isFinite(h?.temperature));
+   const options=[afternoonExtrema.maxHour,...(afternoonHistory.length<2?elapsed.map(h=>({...h,observed:false,estimated:true})):[])].filter(h=>Number.isFinite(h?.temperature));
    afternoon.maxHour=options.reduce((a,b)=>!a||b.temperature>a.temperature?b:a,null);
    afternoon.hi=afternoon.maxHour?.temperature??NaN;
   }
@@ -3333,9 +3337,11 @@ function satelliteTime(){
 function timelineForecastCloud(time){
  prepareLiveArea(true);
  const f=nativeAreaFrame(time,'cloud',[10,51],true);
- if(!f || time-f.time>=3600000)return null;
- const hour=f.hour, delta=(time-f.time)/3600000, next=delta?hour+1:hour;
- if(!f.d.frames[next]?.cloud)return null;
+ if(!f || time-f.time>=6*3600000)return null;
+ const hour=f.hour,next=time===f.time?hour:f.d.hours.find(h=>h>hour&&f.d.frames[h]?.cloud);
+ if(next===undefined||!f.d.frames[next]?.cloud)return null;
+ const nextTime=mapLeadTime(f.d,next),delta=next===hour?0:(time-f.time)/(nextTime-f.time);
+ if(delta<0||delta>1)return null;
  const p=fields.cloud;
  for(const h of new Set([hour,next]))fetchNativeMapFields(f.d,p,h);
  const first=f.d.decoded.get(hour+'/cloud'), last=f.d.decoded.get(next+'/cloud');
@@ -3362,10 +3368,13 @@ function timelineRadar(time){
  const f=ownRadarFrame(new Date(time)),bright=brightRadarFrames.get(time);
  if(f?.forecast&&f.time===time)return f;
  if(bright?.forecast)return ownRadarWithModels(bright);
+ if(time<=Date.now()&&f&&!f.forecast)return f;
  if(!nowcastFramePending.has(time)&&!brightRadarPending.has(time)&&Date.now()-(forecastAttempts.get(time)||0)>10000){
   forecastAttempts.set(time,Date.now());
   if(forecastAttempts.size>40)forecastAttempts.delete(forecastAttempts.keys().next().value);
   fetchNowcastMapFrame(new Date(time));
+  // Independent single-frame endpoint avoids waiting for the full RV packet.
+  setTimeout(()=>{if(liveLayer==='satellite'&&liveMinute>0&&satelliteTime()===time&&!nowcastMapFrames.has(time))fetchBrightRadarFrame(new Date(time));},2000);
  }
  return null;
 }
@@ -3395,7 +3404,7 @@ function drawSatelliteTimeline(ctx,b,info){
  }
 }
 function timelineLabels(info){
- const kind=liveMinute<0?'Rückblick':'Vorhersage',time=timeText(info.date);
+ const kind=liveMinute<0?'Rückblick':info.frame&&!info.frame.forecast?'Radar-Beobachtung':'Vorhersage',time=timeText(info.date);
  el('map-layer-title').textContent='Satellitenwolken + Niederschlagsradar';
  el('map-model-badge').textContent=kind;
  el('map-overlay-model').textContent=info.available?info.source:'Wolkendaten fehlen';
@@ -3531,7 +3540,7 @@ function fetchBrightRadar(){
 function fetchBrightRadarFrame(date){
  const t=date.getTime();if(!Number.isFinite(t)||t<Date.now()-120*60000||t>Date.now()+120*60000||brightRadarPending.has(t)||Date.now()-(brightRadarChecks.get(t)||0)<60000)return;
  brightRadarChecks.set(t,Date.now());while(brightRadarChecks.size>45)brightRadarChecks.delete(brightRadarChecks.keys().next().value);
- const task=(async()=>{try{const row=(await brightRadarFetch(t,t)).find(r=>r.time===t&&(t>Date.now()?r.forecast&&Date.now()-r.base<=25*60000:!r.forecast));if(!row)return;const amount=await brightRadarUnpack(row);brightRadarFrames.set(t,{time:t,grid:brightRadarGrid,amount,source:'RV / Bright Sky'+(row.forecast?' · Prognose':''),forecast:row.forecast,key:'bright/'+t+'/'+row.base});while(brightRadarFrames.size>10)brightRadarFrames.delete(brightRadarFrames.keys().next().value);refreshOwnRadarViews()}catch{}})().finally(()=>brightRadarPending.delete(t));brightRadarPending.set(t,task);
+ const task=(async()=>{try{const row=(await brightRadarFetch(t,t)).find(r=>r.time===t&&(t>Date.now()?r.forecast&&Date.now()-r.base<=25*60000:!r.forecast));if(!row)return;const amount=await brightRadarUnpack(row);brightRadarFrames.set(t,{time:t,grid:brightRadarGrid,amount,source:'RV / Bright Sky'+(row.forecast?' · Prognose':''),forecast:row.forecast,key:'bright/'+t+'/'+row.base});while(brightRadarFrames.size>10)brightRadarFrames.delete(brightRadarFrames.keys().next().value);refreshOwnRadarViews()}catch{}})().finally(()=>{brightRadarPending.delete(t);scheduleMap()});brightRadarPending.set(t,task);
 }
 
 
