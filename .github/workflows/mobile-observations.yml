@@ -2,7 +2,7 @@ name: Mobile observed weather and precipitation history
 on:
   workflow_dispatch:
   schedule:
-    - cron: '4,14,24,34,44,54 * * * *'
+    - cron: '4,9,14,19,24,29,34,39,44,49,54,59 * * * *'
   push:
     branches: [main]
     paths: ['scripts/ingest-observed-surface.py','scripts/ingest-radar-history.py','scripts/ingest-satellite-cloud.py','scripts/test-satellite-cloud.py','assets/observations.js','.github/workflows/mobile-observations.yml']
