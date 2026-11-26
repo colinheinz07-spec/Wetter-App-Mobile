@@ -1,1 +1,1 @@
-{"schema":1,"generated":1795680653,"observed":1795680300,"source":"DWD KONRAD3D","cells":[],"radarSites":17,"missingRadarSites":[]}
+{"schema":1,"generated":1795680954,"observed":1795680600,"source":"DWD KONRAD3D","cells":[],"radarSites":17,"missingRadarSites":["umd"]}
