@@ -2673,8 +2673,8 @@ function todayDaytimeExtremes(day,point,height,now,current=null){
  const candidates=[extrema.maxHour,...fallback].filter(h=>Number.isFinite(h?.temperature));
  let maxHour=candidates.reduce((a,b)=>!a||b.temperature>a.temperature?b:a,null);
  // Retain the last valid daytime estimate if a subsequent feed loses its data.
- if(now>=end&&!reliable&&record.estimate&&Number.isFinite(record.estimate.temperature)&&(!maxHour||record.estimate.temperature>maxHour.temperature))maxHour={...record.estimate,estimated:true,observed:false};
- if(maxHour&&Number.isFinite(maxHour.temperature)&&now>=end)record.estimate={...maxHour,estimated:!reliable||!!maxHour.estimated};
+ if(!reliable&&record.estimate&&Number.isFinite(record.estimate.temperature)&&(!maxHour||(now>=end&&record.estimate.end<=now&&record.estimate.temperature>maxHour.temperature)))maxHour={...record.estimate,estimated:true,observed:false};
+ if(maxHour&&Number.isFinite(maxHour.temperature))record.estimate={start:maxHour.start,end:maxHour.end,temperature:maxHour.temperature,observed:!!maxHour.observed,estimated:!reliable||!!maxHour.estimated||maxHour.end>now};
  saveDailyTemperatureRecord();
  return {...extrema,hi:maxHour?.temperature??NaN,maxHour,futureCount:remaining.length,history,incomplete:!reliable,estimated:fallback.length>0||!!maxHour?.estimated};
 }
@@ -3422,7 +3422,7 @@ function displayedSatelliteRadar(info){
  const live=!info.timeline,requested=live?(ownRadarFrame(new Date(radarBaseTime()),true)||satelliteFrames.latestRadar(Date.now()-24*3600000)):info.frame;
  if(requested){const canvas=ownRadarRaster(requested);if(canvas){const ready={frame:requested,canvas};lastSatelliteRadar=ready;if(!requested.forecast)lastSatelliteObservation=ready;return ready;}}
  if(live){const archived=satelliteFrames.latestRadar(Date.now()-24*3600000);if(archived){const canvas=ownRadarRaster(archived);if(canvas){lastSatelliteObservation={frame:archived,canvas};return lastSatelliteObservation}}return lastSatelliteObservation;}
- return lastSatelliteRadar;
+ return (info.date.getTime()<=Date.now()&&lastSatelliteRadar?.frame.forecast?lastSatelliteObservation:lastSatelliteRadar)||null;
 }
 function drawSatelliteTimeline(ctx,b,info){
  if(info.img)drawSatelliteOverlay(ctx,b,info.img,satelliteFrames.bounds);
@@ -3440,10 +3440,9 @@ function timelineLabels(info){
  el('map-layer-title').textContent='Satellitenwolken + Niederschlagsradar';
  el('map-model-badge').textContent=kind;
  el('map-overlay-model').textContent=info.available?info.source:'Wolkendaten fehlen';
- const loading=nowcastFramePending.has(info.date.getTime())||brightRadarPending.has(info.date.getTime())||satelliteFrames.pending?.('radar',Math.floor(info.date.getTime()/600000)*600000);
  const shown=displayedSatelliteRadar(info)?.frame,matching=shown&&shown.key===info.frame?.key;
  el('map-overlay-data').textContent=matching?shown.source:shown?'Radar '+localTime(shown.time,{hour:'2-digit',minute:'2-digit'})+' · aktualisiert …':'Radar lädt …';
- el('map-valid').textContent=kind+' · '+time+(liveMinute<0?' · Satellit: '+(info.img?timeText(new Date(info.imageTime)):'—')+' · Radar: '+(shown?timeText(new Date(shown.time)):'lädt'):'');
+ el('map-valid').textContent=kind+' · '+time+(liveMinute<0?' · Satellit: '+(info.img?timeText(new Date(info.imageTime)):'—'):'')+(shown&&!matching?' · Angezeigtes Radar: '+timeText(new Date(shown.time)): '');
  el('map-data-notice').textContent=kind;
  el('map-time-label').textContent=localTime(info.date.getTime(),{hour:'2-digit',minute:'2-digit'})+' · '+(liveMinute>0?'+':'')+liveMinute+' min';
  el('map-view-description').textContent=info.source;
