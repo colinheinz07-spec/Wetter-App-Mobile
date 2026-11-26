@@ -4,7 +4,7 @@ on:
   schedule:
     # Check shortly after likely publication times; GitHub scheduling may
     # still be delayed, so the client must keep validating exact data age.
-    - cron: '3,13,23,33,43,53 * * * *'
+    - cron: '3,8,13,18,23,28,33,38,43,48,53,58 * * * *'
   push:
     branches: [main]
     paths: ['scripts/ingest-ruc-live.py','scripts/ingest-ruc-hail.py','scripts/test-ruc-live.py','assets/app.js','.github/workflows/mobile-live.yml']
