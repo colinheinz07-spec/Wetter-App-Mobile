@@ -73,8 +73,24 @@ def main():
     else:
         names=sorted(set(re.findall(r'composite_rv_\d{8}_\d{4}\.tar',get(URL).decode())),reverse=True)
         if not names: raise ValueError('No RV cycles listed')
-        blob=get(URL+names[0])
-    payload=decode(blob,now); path=Path('data/radar-nowcast.json.gz'); temp=path.with_suffix('.tmp')
+        # A newly listed TAR may be incomplete while the previous cycle is valid.
+        # Keep trying recent complete runs; do not publish corrupt or synthetic data.
+        errors=[]
+        for name in names[:4]:
+            try:
+                stamp=re.search(r'composite_rv_(\d{8}_\d{4})',name)[1]
+                run=dt.datetime.strptime(stamp,'%Y%m%d_%H%M').replace(tzinfo=dt.timezone.utc)
+                if not now-dt.timedelta(minutes=25) <= run <= now:
+                    continue
+                payload=decode(get(URL+name),now)
+                break
+            except (ValueError, OSError, tarfile.TarError, KeyError) as exc:
+                errors.append(f'{name}: {exc}')
+        else:
+            raise ValueError('No complete fresh RV cycle: '+'; '.join(errors))
+    if len(sys.argv)==2:
+        payload=decode(blob,now)
+    path=Path('data/radar-nowcast.json.gz'); temp=path.with_suffix('.tmp')
     with temp.open('wb') as f:
         with gzip.GzipFile(filename='',fileobj=f,mode='wb',mtime=0,compresslevel=5) as z:
             z.write(json.dumps(payload,separators=(',',':')).encode())
