@@ -2104,7 +2104,7 @@ function workerNowcast(type,details){
  if(typeof Worker!=='function')return Promise.resolve(null);
  try{
   if(!nowcastWorker){
-   nowcastWorker=new Worker('assets/nowcast-worker.js?v=20261121');
+   nowcastWorker=new Worker('assets/nowcast-worker.js?v=28f2b65fe978');
    nowcastWorker.onmessage=({data})=>{const entry=nowcastMessages.get(data.id);if(entry){nowcastMessages.delete(data.id);clearTimeout(entry.timer);entry.resolve(data.result)}};
    nowcastWorker.onerror=()=>{nowcastWorker?.terminate();nowcastWorker=null;for(const e of nowcastMessages.values()){clearTimeout(e.timer);e.resolve(null)}nowcastMessages.clear()};
   }
@@ -2704,6 +2704,7 @@ function upcomingNight(days,now){
  return (now<days[0].night.end?days[0]:days[1]).night;
 }
 function temperatureExtremeTime(h){
+ if(h?.estimated&&Number.isFinite(h.end))return ' · '+localTime(h.end,{hour:'2-digit',minute:'2-digit'})+' Uhr · Schätzwert';
  if(h?.observed&&Number.isFinite(h.start))return ' · '+localTime(h.start,{hour:'2-digit',minute:'2-digit'})+' Uhr · beobachteter Stichprobenwert';
  if(Number.isFinite(h?.time))return ' · '+localTime(h.time,{hour:'2-digit',minute:'2-digit'})+' Uhr · Beobachtungs-/Analysezeit';
  if(Number.isFinite(h?.start)&&Number.isFinite(h?.end))return ' · '+localIntervalLabel(h.start,h.end)+' Uhr';
@@ -3412,14 +3413,16 @@ function timelineLabels(info){
  el('map-overlay-data').textContent=info.frame?info.frame.source:loading?'Radar lädt …':'Radar noch nicht verfügbar';
  el('map-valid').textContent=kind+' · '+time+(liveMinute<0?' · Satellit: '+(info.img?timeText(new Date(info.imageTime)):'—')+' · Radar: '+(info.frame?timeText(new Date(info.frame.time)):'—'):'');
  el('map-data-notice').textContent=kind;
- el('map-time-label').textContent=time+' · '+(liveMinute>0?'+':'')+liveMinute+' min';
+ el('map-time-label').textContent=localTime(info.date.getTime(),{hour:'2-digit',minute:'2-digit'})+' · '+(liveMinute>0?'+':'')+liveMinute+' min';
  el('map-view-description').textContent=info.source;
  el('map-interval').textContent=liveMinute<0?'GeoColour und Radar: letzte archivierte Zehn-Minuten-Aufnahme zum gewählten Zeitpunkt (max. fünf Minuten zuvor). Messzeiten siehe oben.':'Prognostizierter Bedeckungsgrad und Niederschlags-Nowcast zum gewählten Zeitpunkt.';
 }
 function timelineWaiting(){
  const info=selectedSatelliteInfo(),key=info.date.getTime();
  if(key!==lastSatelliteSelection){selectionStarted=Date.now();lastSatelliteSelection=key}
- return Date.now()-selectionStarted<6000 && (!info.available || !info.frame || !readyRadarFrame(info.frame,'radar',false));
+ const ready=!!(info.frame&&readyRadarFrame(info.frame,'radar',false));
+ if(info.available&&ready&&liveMinute<0){const next=Math.floor((info.date.getTime()+600000)/600000)*600000;satelliteFrames.file('frames',next);satelliteFrames.file('radar',next);}
+ return Date.now()-selectionStarted<15000 && (!info.available || !ready);
 }
 
 const liveAreaIds={temperature:'temp2',wind:'wind',gust:'gust',radar:'rainrate',types:'rainrate',snowfall:'rainrate',snowcover:'snowdepth'};
@@ -3868,7 +3871,7 @@ function realLiveLabels(){
  const info=realLiveInfo(),valid=Number.isFinite(info.date.getTime());
  document.querySelector('.live-map-note').textContent='Echte Beobachtungen und messdatengestützte Analysen; Modellprognosen getrennt gekennzeichnet. Zeitstempel und Datenverfügbarkeit je Produkt.';
  if(info.timeline){timelineLabels(info);return}
- if(info.satellite){const frame=readyRadarFrame(ownRadarFrame(new Date(radarBaseTime()),true),'radar',true),status=info.available?'Beobachtung':'Wolkenbild nicht verfügbar';el('map-layer-title').textContent='Satellitenwolken + Niederschlagsradar';el('map-model-badge').textContent=status;el('map-overlay-model').textContent=info.source;el('map-overlay-data').textContent=frame?'Radar-Messung': 'Radar lädt / nicht verfügbar';el('map-data-notice').textContent=status;el('map-valid').textContent=(valid?'Satellit: '+timeText(info.date):'Satellit: keine Daten')+' · '+(frame?'Radar: '+timeText(new Date(frame.time)):'Radar: keine Daten');el('map-view-description').textContent='Unabhängige Satelliten- und Radarbeobachtungen';el('map-interval').textContent='Farbige Niederschlagsflächen zeigen die Radarmessung über dem Satellitenbild. Beide Messzeiten stehen oben.';el('map-time-label').textContent='Jetzt · letzte Beobachtungen';return}
+ if(info.satellite){const frame=readyRadarFrame(ownRadarFrame(new Date(radarBaseTime()),true),'radar',true),status=info.available?'Beobachtung':'Wolkenbild nicht verfügbar';el('map-layer-title').textContent='Satellitenwolken + Niederschlagsradar';el('map-model-badge').textContent=status;el('map-overlay-model').textContent=info.source;el('map-overlay-data').textContent=frame?'Radar-Messung': 'Radar lädt / nicht verfügbar';el('map-data-notice').textContent=status;el('map-valid').textContent=(valid?'Satellit: '+timeText(info.date):'Satellit: keine Daten')+' · '+(frame?'Radar: '+timeText(new Date(frame.time)):'Radar: keine Daten');el('map-view-description').textContent='Unabhängige Satelliten- und Radarbeobachtungen';el('map-interval').textContent='Farbige Niederschlagsflächen zeigen die Radarmessung über dem Satellitenbild. Beide Messzeiten stehen oben.';el('map-time-label').textContent='Jetzt';return}
  if(info.observedGrid){const analysis=info.observedGrid.kind==='analysis',stale=info.observedGrid.stale,status=stale?'Letzte Analyse · veraltet':analysis?'DWD · +0 h Analyse':'DWD · Beobachtungsanalyse';el('map-layer-title').textContent=liveLayers[liveLayer].label+' · '+(analysis?'Analyse':'Beobachtungsanalyse');el('map-model-badge').textContent=status;el('map-overlay-model').textContent=info.source;el('map-overlay-data').textContent=status;el('map-data-notice').textContent=status;el('map-valid').textContent=info.kind+': '+timeText(info.date);el('map-view-description').textContent=info.source;el('map-interval').textContent=stale?'Letzte verfügbare 2,2-km-Analyse, nicht der aktuelle Ist-Zustand. Aktualisierung ausstehend; keine Warnableitung aus veralteten Feldern.':analysis?'Flächendeckende aktuelle 2,2-km-Analyse mit Messdaten und Modellhintergrund; keine Vorhersage. Grau: außerhalb der Datenabdeckung.':'Stationsbasierte Ersatzdarstellung; grau: keine ausreichenden Beobachtungen.';el('map-time-label').textContent=stale?'Letzte verfügbare Analyse':'Aktuelle Analyse';return}
  if(solarLayers.has(liveLayer)){const p=currentLiveImage(),state=liveImageCache.get(liveLayer)?.state,status=p&&state==='ready'?'Rasteranalyse':solarRequest?'Rasteranalyse lädt …':'Keine aktuelle Rasteranalyse';el('map-layer-title').textContent=liveLayers[liveLayer].label;el('map-model-badge').textContent=status;el('map-overlay-model').textContent=info.source;el('map-overlay-data').textContent=status;el('map-data-notice').textContent=status;el('map-valid').textContent=p?'Messintervall: '+timeText(new Date(p.start))+' – '+timeText(new Date(p.time)):'Keine gültige Datenzeit';el('map-view-description').textContent='DUETT · Satelliten- und Bodenmessungen · 2 km · CC BY 4.0';el('map-interval').textContent=liveLayer==='sunshine'?'Beobachtungsbasierte Sonnenscheindauer in Minuten während der letzten verfügbaren Stunde; keine Vorhersage.':'Beobachtungsbasierte mittlere Globalstrahlung während der letzten verfügbaren Stunde; keine Momentanmessung.';el('map-time-label').textContent='Letzte verfügbare Stunde';return}
  if(info.image){const p=currentLiveImage(),state=liveImageCache.get(liveLayer)?.state,status=!info.available?((liveLayer==='doppler'?dopplerRequest:liveImageryRequest)?'Bild wird geladen …':'Kein aktuelles Bild verfügbar'):state==='ready'?'Beobachtung':state==='error'?'Bild konnte nicht geladen werden':'Bild wird geladen …';el('map-layer-title').textContent=liveLayers[liveLayer].label;el('map-model-badge').textContent=status;el('map-overlay-model').textContent=info.source;el('map-overlay-data').textContent=status;el('map-data-notice').textContent=status;el('map-valid').textContent=valid?'Messzeit: '+timeText(info.date):'Keine gültige Datenzeit';el('map-view-description').textContent=info.source;el('map-interval').textContent=liveLayer==='doppler'?'Radialwind in m/s · Grün: zum Radar · Rot: vom Radar weg. '+(p?'Elevation '+p.elevation+'° · ':'')+'Nebeneinanderliegende Gegengeschwindigkeiten können Rotation andeuten; kein Tornadonachweis. Faltungs-/Störeffekte möglich.':liveLayer==='satellite'?'GeoColour: Wolkenbild (Tag / Nacht), keine Radarreflektivität.':'DWD DMAX: maximales Radarecho in dBZ in der vertikalen Luftsäule, keine Niederschlagsrate.';el('map-time-label').textContent='Letzte Beobachtung';return}
