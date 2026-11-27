@@ -12,10 +12,10 @@ def field(end,**values):return {(end,k):fill(v) for k,v in values.items()}
 end=10800
 f=field(end,temp2=-6,gust=103,orog=100,ww=61,tground=0,rh2=96,rainTotal=21,mlcape=1500,mlcin=-25,s06=20);f[(0,'rainTotal')]=fill(0)
 x=r.analyze(f,end)
-assert x['frost'][0]==2 and x['wind'][0]==3 and x['rain'][0]==1 and x['ice'][0]==1
+assert x['frost'][0]==1 and x['wind'][0]==3 and x['rain'][0]==1 and x['ice'][0]==1
 assert x['storm'][0]==2
 assert r.analyze({},end)['frost'][0]==255
-assert r.combine([x['frost'],fill(0).astype('uint8')],'frost')[0]==2
+assert r.combine([x['frost'],fill(0).astype('uint8')],'frost')[0]==1
 assert r.combine([x['frost'],fill(1).astype('uint8')],'frost')[0]==11
 assert r.combine([x['storm'],x['storm']],'storm')[0]==12
 assert x['stormwind'][0]==3 and x['stormrain'][0]==1 and x['hail'][0]==255
@@ -94,3 +94,16 @@ unknown=r.build(0,[dict(model='ICON-D2',run=0,step=.02,fields=unknown_fields)],[
 assert np.frombuffer(base64.b64decode(unknown['metrics']['snowMin']),dtype='<i2')[0]==-32768
 print('PASS: independent model agreement, uncertain convective signal, missing inputs, phase and own thresholds')
 
+
+# Exact boundaries, missing cells and geographically independent severity.
+assert r.frost_level(np.array([1,0,-.1,-9.9,-10,-19.9,-20,-20.1,np.nan])).tolist()==[0,0,1,1,2,2,2,3,255]
+spatial=fill(-2);spatial[1:4]=[-10,-20,-20.1]
+models=[dict(model=m,run=0,step=.02,fields={(end,'temp2'):spatial}) for m in ('ICON-D2','GFS')]
+p=r.build(0,models,[end])['periods'][0]
+assert p['frostThresholdVersion']==2
+assert list(base64.b64decode(p['layers']['frost'])[:5])==[11,12,12,13,11]
+# A warmer member cannot supply the metric for a stronger single-model risk.
+models=[dict(model='ICON-D2',run=0,step=.02,fields=field(end,temp2=-13)),dict(model='GFS',run=0,step=.25,fields=field(end,temp2=-2))]
+p=r.build(0,models,[end])['periods'][0]
+assert base64.b64decode(p['layers']['frost'])[0]==11
+assert np.frombuffer(base64.b64decode(p['metrics']['frost']),dtype='<i2')[0]==-20

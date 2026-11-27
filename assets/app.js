@@ -2824,6 +2824,7 @@ function frostModelSignals(point,start,end,now){
   if(values.length)families.set(family,{model,value:Math.min(...values)});
  }return [...families.values()];
 }
+function frostLevel(t){return !Number.isFinite(t)||t>=0?0:t< -20?3:t<=-10?2:1}
 function localWarnings(days,now,elevation=NaN,point=null){
  const raw=days.flatMap(d=>d.periods?d.periods.flatMap(p=>p.nativeIntervals||[]):d.intervals||[]).filter(r=>r.end>now&&!r.estimated&&r.frame?.d&&now-Date.parse(r.frame.d.run)<=modelAgeLimit(r.frame.d.model)*HOUR_MS).sort((a,b)=>a.start-b.start||a.hours-b.hours||Date.parse(b.frame.d.run)-Date.parse(a.frame.d.run));
  const intervals=[],events=[];for(const r of raw)if(!intervals.length||r.start>=intervals.at(-1).end)intervals.push(r);
@@ -2831,7 +2832,7 @@ function localWarnings(days,now,elevation=NaN,point=null){
  if(point&&typeof liveLocalWeather==='function'){
   const live=liveLocalWeather(null,point,now),s=live.temp2;
   if(['observation','analysis','estimate'].includes(s.kind)&&Number.isFinite(s.value)&&s.value<0)
-   add('Luftfrost',warningLevel(-s.value,[0,5,10,20,30]),s.time,now+30*60000,s.value,'°C',0,[s.kind==='observation'?'DWD SYNOP':'Ortsanalyse'],s.source,s.kind==='observation'?'observed':'analysis');
+   add('Luftfrost',frostLevel(s.value),s.time,now+30*60000,s.value,'°C',0,[s.kind==='observation'?'DWD SYNOP':'Ortsanalyse'],s.source,s.kind==='observation'?'observed':'analysis');
   const fog=typeof WeatherObservation!=='undefined'?WeatherObservation.fogAt(point,elevation,now):null;
   if(fog){
     const observed=fog.state==='observed',v=fog.visibility;
@@ -2847,7 +2848,7 @@ function localWarnings(days,now,elevation=NaN,point=null){
  for(const r of intervals){const f=r.frame,g=frameVal(f,'gust'),t=frameVal(f,'temp2'),v=frameVal(f,'visibility'),ww=frameVal(f,'ww');
   // With uncertain height, use the stricter (lower) base threshold and label as provisional.
   single(r,'Sturm / Orkan',warningLevel(g,elevation>=800?[60,80,105,125,155]:[50,70,100,120,150]),g,'km/h');
-  if(t<0)single(r,'Luftfrost',warningLevel(-t,[0,5,10,20,30]),t,'°C');
+  if(t<0)single(r,'Luftfrost',frostLevel(t),t,'°C');
   single(r,'Hitze',Number.isFinite(t)?t>41?5:t>=39?4:t>=37?3:0:0,t,'°C');
   if(Number.isFinite(v)&&v>=0&&v<=.5)add('Nebel',v<.05?3:v<.15?2:1,r.start,r.end,v*1000,'m',r.hours,[f.d.model],'Modellierte Sichtweite, keine bestätigte Messung. Besonders in Muldenlagen lokale Abweichungen möglich.');
   if(!(v>=0&&v<=.25)&&typeof WeatherObservation!=='undefined'&&WeatherObservation.fogPotential(t,frameVal(f,'dew'),frameHumidity(f),frameVal(f,'wind')))add('Nebelpotenzial',1,r.start,r.end,NaN,'',r.hours,[f.d.model],'Taupunkt nahe der 2-m-Temperatur und schwacher Wind; besonders in Muldenlagen. Keine bestätigte Sichtweite.','risk');
@@ -2883,7 +2884,7 @@ function localWarnings(days,now,elevation=NaN,point=null){
     'Schneefall möglich; Modell liefert keinen belastbar quantifizierbaren Neuschnee. Ein mit 0 cm gerundetes Signal bedeutet nicht zwangsläufig schneefrei.','forecast');
   }
  }
- if(point)for(let start=Math.floor(now/(3*HOUR_MS))*3*HOUR_MS;start<now+48*HOUR_MS;start+=3*HOUR_MS){const end=start+3*HOUR_MS,all=frostModelSignals(point,Math.max(start,now),end,now),wet=all.filter(m=>m.value<0);if(wet.length>=2&&wet.length>all.length/2){const v=wet.find(m=>m.model==='ICON-D2')?.value??wet.map(m=>m.value).sort((a,b)=>a-b)[Math.floor(wet.length/2)];add('Luftfrost',warningLevel(-v,[0,5,10,20,30]),Math.max(start,now),end,v,'°C',3,wet.map(m=>m.model),wet.length+' von '+all.length+' verfügbaren unabhängigen Modellfamilien zeigen Luftfrost.');}}
+ if(point)for(let start=Math.floor(now/(3*HOUR_MS))*3*HOUR_MS;start<now+48*HOUR_MS;start+=3*HOUR_MS){const end=start+3*HOUR_MS,all=frostModelSignals(point,Math.max(start,now),end,now),wet=all.filter(m=>m.value<0);if(wet.length>=2&&wet.length>all.length/2){const v=wet.find(m=>m.model==='ICON-D2')?.value??wet.map(m=>m.value).sort((a,b)=>a-b)[Math.floor(wet.length/2)];add('Luftfrost',frostLevel(v),Math.max(start,now),end,v,'°C',3,wet.map(m=>m.model),wet.length+' von '+all.length+' verfügbaren unabhängigen Modellfamilien zeigen Luftfrost.');}}
  if(point)for(const day of days)for(const p of day.periods||[]){if(p.end<=now)continue;const models=convectionModels(point,p.start,p.end,now);if(models.length)add('Gewitterpotenzial',1,Math.max(now,p.start),p.end,NaN,'',p.duration,models,models.length>1?'Mehrere unabhängige Modellfamilien zeigen konvektive Signale.':'Leicht erhöhtes Potenzial: Signal einer Modellfamilie.');}
  const rainAmount=r=>{if(!Number.isFinite(r.amount))return NaN;if(r.amount===0)return 0;const f=r.frame,w=frameWeather(f,true),t=frameVal(f,'temp2'),ww=frameVal(f,'ww'),ptype=frameVal(f,'ptype');if(/schnee|gefrierender_regen/.test(w.icon||'')||[5,6,7,8,3,12].includes(ptype))return NaN;return [51,53,55,61,63,65,80,81,82,95,96,99].includes(ww)||ptype===1||t>2?r.amount:NaN};
  const rainfall=intervals.map(rainAmount);

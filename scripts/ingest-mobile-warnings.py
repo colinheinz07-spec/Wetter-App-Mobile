@@ -135,6 +135,10 @@ def direct_storm(fields,end):
 def minimum_temp(fields,end):
     return np.fmin.reduce([field_value(fields,end-offset,'temp2') for offset in (0,3600,7200)])
 
+def frost_level(temp):
+    # Luftfrost: 0 °C itself is not frost; -10 enters L2, below -20 enters L3.
+    return np.where(np.isfinite(temp),np.where(temp < -20,3,np.where(temp <= -10,2,np.where(temp < 0,1,0))),255).astype(np.uint8)
+
 def analyze(fields,end):
     def val(k,t=end):return fields.get((t,k),np.full(N,np.nan,dtype=np.float32))
     t=val('temp2');gust=val('gust');v=val('visibility');ww=val('ww');pt=val('ptype');ground=val('tground');rh=val('rh2');orog=val('orog')
@@ -160,7 +164,7 @@ def analyze(fields,end):
     conv_rain_level=np.maximum(np.where(np.isfinite(rain),levels(rain,[20,35,55,80]),0),np.where(np.isfinite(hour_peak),levels(hour_peak,[15,25,40,60]),0))
     conv_rain=np.where(conv_known&(np.isfinite(rain)|np.isfinite(hour_peak)),np.where(conv,conv_rain_level,0),255).astype(np.uint8)
     causes=ice_causes(fields,end)
-    frost=levels(-minimum_temp(fields,end),[.0001,5,10,20])
+    frost=frost_level(minimum_temp(fields,end))
     snow_cm=fresh_snow_cm(fields,end)
     snow_signal=np.isin(ww,[70,71,72,73,74,75,77,85,86])|(np.isin(pt,[5,6])&wet)|(snow_cm>=.1)
     snow_levels=categorical(phase_known|np.isfinite(snow_cm),snow_signal)
@@ -252,6 +256,9 @@ def build(now,models,ends,watch=False):
                 elif kind=='frost':values=minimum_temp(f,end)
                 else:values=field_value(f,end,field)
                 valid=(row[hazard]>0)&(row[hazard]<255)&np.isfinite(values)&~np.isfinite(chosen)
+                if kind=='frost':
+                    target=codes['frost']%10
+                    valid&=row[hazard]==target
                 chosen[valid]=values[valid]
             packed=np.where(np.isfinite(chosen)&(np.abs(chosen)<3276),np.rint(chosen*10),-32768).astype('<i2')
             metrics[kind]=pack(packed)
@@ -271,7 +278,7 @@ def build(now,models,ends,watch=False):
         for key,values in [('snowMin',snow_lower),('snowMax',snow_upper)]:
             packed=np.where(np.isfinite(values)&(values>=0)&(values<3276),np.rint(values*10),-32768).astype('<i2')
             metrics[key]=pack(packed)
-        periods.append(dict(start=end-10800,end=end,layers=layers,metrics=metrics,metricVersion=2))
+        periods.append(dict(start=end-10800,end=end,layers=layers,metrics=metrics,metricVersion=2,frostThresholdVersion=2))
     grid=dict(GRID,step=.04,nx=241,ny=206) if watch else GRID
     return dict(schema=1,generated=now,grid=grid,models=[{k:m[k] for k in ('model','run','step')} for m in models],periods=periods)
 

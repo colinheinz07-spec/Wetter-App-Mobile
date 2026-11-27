@@ -127,9 +127,9 @@ assert.doesNotMatch(el('national-warning').innerHTML,/id="nw-list"/);
  handlers.get('#nw-close:click')();assert.equal(el('#nw-popup').hidden,true);assert.equal(el('#nw-detail').innerHTML,'');
  assert.match(el('#nw-type-tiles').innerHTML,/data-nw-kind="frost"/);
  handlers.get('#nw-type-tiles:click')({target:{closest:()=>({dataset:{nwKind:'frost'}})}});
- tap('[data-warning-kind]',{warningLon:'8',warningLat:'50'});assert.match(el('#nw-detail').innerHTML,/Luftfrost · L2/);
+ tap('[data-warning-kind]',{warningLon:'8',warningLat:'50'});assert.match(el('#nw-detail').innerHTML,/Luftfrost · L1/);
  assert.match(el('#nw-detail').innerHTML,/Am ausgewählten Ort wird Luftfrost erwartet/);assert.match(el('#nw-detail').innerHTML,/-2 °C/);assert.doesNotMatch(el('#nw-detail').innerHTML,/-4 bis/);assert.match(canvas.innerHTML,/class="nw-districts"/);
- assert.equal((el('#nw-detail').innerHTML.match(/Luftfrost · L2/g)||[]).length,1);
+ assert.equal((el('#nw-detail').innerHTML.match(/Luftfrost · L1/g)||[]).length,1);
  assert.doesNotMatch(canvas.innerHTML,/data-storm-id="test"/);
  await handlers.get('tab-upcoming:click')();
  assert.match(el('#nw-type-tiles').innerHTML,/data-nw-kind="frost"/);
@@ -149,3 +149,6 @@ assert.match(cleanAreas[1],/#edc844/);assert.match(cleanAreas[2],/#f18b26/);
 assert.doesNotMatch(cleanAreas.join(''),/opacity/);
 assert.match(w.composeWarningAreas([['missing','A1','A2','',''],['','B1','','B3','']]),/missingA1B1A2B3/);
 assert.equal((w.gridContour(Uint8Array.from([0,1,1,0]),2,2,1).match(/M/g)||[]).length,2);
+
+assert.deepEqual([1,0,-.1,-9.9,-10,-20,-20.1,NaN].map(w.frostLevel),[0,0,1,1,2,2,3,0]);
+assert.deepEqual([[12,-2],[13,-9],[13,-10],[14,-20],[14,-21],[31,-1],[255,NaN]].map(([c,t])=>w.legacyFrostCode(c,t)),[11,11,12,12,13,31,255]);
