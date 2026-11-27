@@ -14,7 +14,7 @@ function loadSatelliteIndex(){
   .then(async res=>{
    if(!res.ok)return;
    const d=await res.json();
-   if(d.schema===1 && [d.frames,d.radar].every(a=>Array.isArray(a)&&a.length<=160&&a.every(t=>Number.isInteger(t)&&t%600===0)) && String(d.bounds)==='1,44,19,58')archiveIndex=d;
+   if(d.schema===1 && Array.isArray(d.frames)&&d.frames.length<=160&&d.frames.every(t=>Number.isInteger(t)&&t%600===0)&&Array.isArray(d.radar)&&d.radar.length<=310&&d.radar.every(t=>Number.isInteger(t)&&t%300===0) && String(d.bounds)==='1,44,19,58')archiveIndex=d;
   }).catch(()=>{}).finally(()=>{archiveIndexPending=false;scheduleMap()});
 }
 async function readArchiveFile(kind,stamp){
@@ -34,7 +34,7 @@ async function readArchiveFile(kind,stamp){
 function archiveFile(kind,time){
  loadSatelliteIndex();
  const stamp=time/1000;
- if(!Number.isInteger(stamp)||stamp%600!==0||!['frames','radar'].includes(kind))return null;
+ if(!Number.isInteger(stamp)||stamp%(kind==='radar'?300:600)!==0||!['frames','radar'].includes(kind))return null;
  // The index is published separately from the objects. For a recent scan,
  // try the timestamped file even while the index is loading or lagging.
  if(!archiveIndex?.[kind]?.includes(stamp)&&Date.now()-time>45*60000)return null;
@@ -50,6 +50,14 @@ function archiveFile(kind,time){
  });
  return null;
 }
+function atOrBefore(kind,time,maxAge){
+ loadSatelliteIndex();
+ const step=kind==='radar'?300000:600000,exact=Math.floor(time/step)*step;
+ const direct=archiveFile(kind,exact);if(direct)return {value:direct,time:exact};
+ const stamps=(archiveIndex?.[kind]||[]).filter(t=>t*1000<=time&&time-t*1000<=maxAge).sort((a,b)=>b-a);
+ for(const stamp of stamps.slice(0,3)){const value=archiveFile(kind,stamp*1000);if(value)return {value,time:stamp*1000};}
+ return null;
+}
 function latest(minimumTime){
  loadSatelliteIndex();
  const stamp=archiveIndex?.frames.at(-1);
@@ -62,5 +70,5 @@ function latestRadar(minimumTime){
  const stamp=archiveIndex?.radar.filter(t=>t*1000<=Date.now()&&t*1000>=minimumTime).at(-1);
  return stamp?archiveFile('radar',stamp*1000):null;
 }
-return {file:archiveFile,latest,latestRadar,pending(kind,time){return archiveIndexPending||Boolean(archiveCache.get(kind+'/'+time/1000)?.pending)},get bounds(){return archiveIndex?.bounds||[1,44,19,58]}};
+return {file:archiveFile,atOrBefore,latest,latestRadar,pending(kind,time){return archiveIndexPending||Boolean(archiveCache.get(kind+'/'+time/1000)?.pending)},get bounds(){return archiveIndex?.bounds||[1,44,19,58]}};
 }
