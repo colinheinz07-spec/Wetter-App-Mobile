@@ -640,7 +640,7 @@ function liveBaseHour(){return typeof realLiveEnabled!=='undefined'&&realLiveEna
 function liveDisplayMinute(){return liveHourlyMode()?liveTempDay*1440+(liveTempHour-liveBaseHour())*60:clamp(liveMinute,liveLayer==='satellite'&&realLiveEnabled?-1440:-120,liveMaxMinute())}
 function liveIsFuture(){return liveDisplayMinute()>0}
 function liveTimeKind(){return liveIsFuture()?(liveLayer==='temperature'?'Temperaturprognose':liveLayer==='wind'?'Windprognose':liveLayer==='gust'?'Böenprognose':liveHourlyMode()?'Niederschlagsprognose':'Radarprognose'):'Beobachtung'}
-function resetLiveTime(){liveMinute=0;liveTempDay=0;liveTempHour=liveBaseHour();liveRadarDaily=false}
+function resetLiveTime(){satelliteTimelineAnchor=null;liveMinute=0;liveTempDay=0;liveTempHour=liveBaseHour();liveRadarDaily=false}
 function selectLiveDay(day){stopPlay();liveTempDay=clamp(day,0,2);if(nowcastLayers.has(liveLayer))liveRadarDaily=true;scheduleMap()}
 function selectLiveNowcast(minute=0){stopPlay();liveRadarDaily=false;liveMinute=clamp(minute,-120,90);scheduleMap()}
 const liveGrid=.025;
@@ -877,7 +877,7 @@ function liveLegend(){
 function selectLiveLayer(id){
  stopPlay();liveLayer=id;if(!liveHasDayTabs())liveMinute=clamp(liveMinute,-120,liveMaxMinute());
  if(['temperature','wind','gust'].includes(id)){liveTempDay=0;liveTempHour=liveBaseHour();}
- if(imageLayers.has(id)){liveMinute=0;if(realLiveEnabled){if(id==='doppler')fetchDoppler();else if(solarLayers.has(id))fetchSolar();else fetchLiveImagery()}}
+ if(imageLayers.has(id)){satelliteTimelineAnchor=null;liveMinute=0;if(realLiveEnabled){if(id==='doppler')fetchDoppler();else if(solarLayers.has(id))fetchSolar();else fetchLiveImagery()}}
  el('map-live-layer').value=id;scheduleMap();
 }
 function syncLiveTimeControls(){
@@ -3354,11 +3354,12 @@ function realLiveTime(){
 }
 const satelliteFrames=createSatelliteArchive(scheduleMap,decodeRadarPoints);
 let forecastCloudCache, lastSatelliteSelection, selectionStarted = 0;
+let satelliteTimelineAnchor=null;
 function satelliteTime(){
- const run = Date.parse(radarNowcastData?.time);
- const recentRun = Number.isFinite(run) && run <= Date.now() && Date.now()-run <= 25*60000;
- const base = liveMinute>0&&recentRun ? run : Math.floor(radarBaseTime()/300000)*300000;
- return base+liveMinute*60000;
+ const base=Math.floor(radarBaseTime()/300000)*300000;
+ if(liveMinute===0){satelliteTimelineAnchor=null;return base;}
+ if(!Number.isFinite(satelliteTimelineAnchor))satelliteTimelineAnchor=base;
+ return satelliteTimelineAnchor+liveMinute*60000;
 }
 function timelineForecastCloud(time){
  prepareLiveArea(true);
@@ -3386,15 +3387,15 @@ function timelineForecastCloud(time){
 const forecastAttempts=new Map();
 function timelineRadar(time){
  if(liveMinute<0){
-  const exact=ownRadarFrame(new Date(time));if(exact&&!exact.forecast)return exact;
   const archived=satelliteFrames.file('radar',Math.floor(time/300000)*300000);if(archived)return ownRadarWithModels(archived);
+  const exact=ownRadarFrame(new Date(time));if(exact&&!exact.forecast)return exact;
   fetchBrightRadarFrame(new Date(time));const prior=satelliteFrames.atOrBefore('radar',time,10*60000);return prior?ownRadarWithModels(prior.value):null;
  }
  fetchRadarNowcast();
  const f=ownRadarFrame(new Date(time)),bright=brightRadarFrames.get(time);
  if(f?.forecast&&f.time===time)return f;
  if(bright?.forecast)return ownRadarWithModels(bright);
- if(time<=Date.now()&&f&&!f.forecast)return f;
+ // Positive offsets must use forecasts, never a measurement with the same timestamp.
  if(!nowcastFramePending.has(time)&&!brightRadarPending.has(time)&&Date.now()-(forecastAttempts.get(time)||0)>10000){
   forecastAttempts.set(time,Date.now());
   if(forecastAttempts.size>40)forecastAttempts.delete(forecastAttempts.keys().next().value);
@@ -3432,7 +3433,7 @@ function displayedSatelliteRadar(info){
  const live=!info.timeline,requested=live?(ownRadarFrame(new Date(radarBaseTime()),true)||satelliteFrames.latestRadar(Date.now()-24*3600000)):info.frame;
  if(requested){const canvas=ownRadarRaster(requested);if(canvas){const ready={frame:requested,canvas};lastSatelliteRadar=ready;if(!requested.forecast)lastSatelliteObservation=ready;return ready;}}
  if(live){const archived=satelliteFrames.latestRadar(Date.now()-24*3600000);if(archived){const canvas=ownRadarRaster(archived);if(canvas){lastSatelliteObservation={frame:archived,canvas};return lastSatelliteObservation}}return lastSatelliteObservation;}
- return (info.date.getTime()<=Date.now()&&lastSatelliteRadar?.frame.forecast?lastSatelliteObservation:lastSatelliteRadar)||null;
+ return (liveMinute<0&&lastSatelliteRadar?.frame.forecast?lastSatelliteObservation:lastSatelliteRadar)||null;
 }
 function drawSatelliteTimeline(ctx,b,info){
  if(info.img)drawSatelliteOverlay(ctx,b,info.img,info.imageBounds||satelliteFrames.bounds);
@@ -3446,12 +3447,12 @@ function drawSatelliteTimeline(ctx,b,info){
  }
 }
 function timelineLabels(info){
- const kind=liveMinute<0?'Rückblick':info.frame&&!info.frame.forecast?'Radar-Beobachtung':'Vorhersage',time=timeText(info.date);
+ const kind=liveMinute<0?'Rückblick':'Vorhersage',time=timeText(info.date);
  el('map-layer-title').textContent='Satellitenwolken + Niederschlagsradar';
  el('map-model-badge').textContent=kind;
  el('map-overlay-model').textContent=info.available?(info.img?'Satellit · '+localTime(info.imageTime,{hour:'2-digit',minute:'2-digit'}):info.mask?.source||info.source):'Wolkenbild lädt …';
  const shown=displayedSatelliteRadar(info)?.frame,matching=shown&&shown.key===info.frame?.key;
- el('map-overlay-data').textContent=matching?shown.source:shown?'Radar '+localTime(shown.time,{hour:'2-digit',minute:'2-digit'})+' · aktualisiert …':'Radar lädt …';
+ el('map-overlay-data').textContent=matching&&shown.time===info.date.getTime()?shown.source:shown?(shown.forecast?'Letzte Prognose ':'Letzter Scan ')+localTime(shown.time,{hour:'2-digit',minute:'2-digit'})+' · lädt …':'Radar lädt …';
  el('map-valid').textContent=kind+' · '+time+(liveMinute<0?' · Satellit: '+(info.img?timeText(new Date(info.imageTime)):info.mask?timeText(new Date(info.mask.time)):'lädt'):'')+(shown&&(!matching||shown.time!==info.date.getTime())?' · Radar: '+timeText(new Date(shown.time)): '');
  el('map-data-notice').textContent=kind;
  el('map-time-label').textContent=localTime(info.date.getTime(),{hour:'2-digit',minute:'2-digit'})+' · '+(liveMinute>0?'+':'')+liveMinute+' min';
@@ -3691,23 +3692,23 @@ function ownRadarFresh(d,minutes=20,now=Date.now()){const t=Date.parse(d?.time);
 // priority and recency, retaining an observed zero and marking missing data.
 function radarObservationSources(now=Date.now()){
  const rows=[
-  [typeof operaRadarData==='undefined'?null:operaRadarData,1,'EUMETNET OPERA · CC BY 4.0',0],
-  [typeof swissRadarData==='undefined'?null:swissRadarData,1,'MeteoSwiss PRECIP',1],
-  [typeof radarPointData==='undefined'?null:radarPointData,12,typeof radarPointData!=='undefined'?(radarPointData?.source||'DWD RY'):'DWD RY',2]
+  [typeof radarPointData==='undefined'?null:radarPointData,12,typeof radarPointData!=='undefined'?(radarPointData?.source||'DWD RY'):'DWD RY',0],
+  [typeof operaRadarData==='undefined'?null:operaRadarData,1,'EUMETNET OPERA · CC BY 4.0',1],
+  [typeof swissRadarData==='undefined'?null:swissRadarData,1,'MeteoSwiss PRECIP',2]
  ];
  return rows.filter(([d])=>ownRadarFresh(d,20,now)).map(([d,factor,source,priority])=>({time:Date.parse(d.time),grid:d.grid,amount:d.amount,rateFactor:factor,source,priority})).sort((a,b)=>b.time-a.time||a.priority-b.priority);
 }
-// European composite first, Swiss national composite second; DWD is a
-// supplementary source. A substantially newer valid measurement can take
-// precedence; missing pixels fall back geographically, never to invented rain.
-const RADAR_SOURCE_TOLERANCE_MS=10*60000;
+// Use the national five-minute observation as the common history/live basis.
+// European and Swiss products fill missing cells, not valid national values.
+// Limit time mixing to one scan interval.
+const RADAR_SOURCE_TOLERANCE_MS=5*60000;
 function useMatchedPhase(primaryTime,pairTime,phaseTime){return Number.isFinite(pairTime)&&Math.abs(primaryTime-phaseTime)>300000&&Math.abs(pairTime-phaseTime)<=300000&&Math.abs(primaryTime-pairTime)<=10*60000;}
 function selectRadarSample(rows,phase=null){
  const samples=(rows||[]).filter(Boolean);if(!samples.length)return null;
  const latest=Math.max(...samples.map(s=>s.time));
  const ranked=samples.filter(s=>latest-s.time<=RADAR_SOURCE_TOLERANCE_MS),prefer=(best,s)=>!best||(s.priority??2)<(best.priority??2)||(s.priority??2)===(best.priority??2)&&s.time>best.time?s:best;
  const primary=ranked.reduce(prefer,null),pair=phase?.code>=2&&phase.code<=10?ranked.filter(s=>s.rate>0&&Math.abs(s.time-phase.time)<=300000).reduce(prefer,null):null;
- return pair&&(primary.rate>0||pair.time>primary.time)&&useMatchedPhase(primary.time,pair.time,phase.time)?pair:primary;
+ return primary; // Phase matching must not replace a valid intensity measurement.
 }
 function radarPacketPhase(d,point,now=Date.now()){
  if(!ownRadarFresh(d,20,now))return null;const g=d.grid,x=Math.round((point[0]-g.west)/g.step),y=Math.round((point[1]-g.south)/g.step);if(x<0||x>=g.nx||y<0||y>=g.ny)return null;const i=y*g.nx+x,o=Math.floor(i/3)*4,code=atob(d.classes.slice(o,o+4)).charCodeAt(i%3);return code<=10?{code,time:Date.parse(d.time)}:null
@@ -3732,7 +3733,7 @@ function ownRadarObservation(){
  return {time:latest,grid:base.grid,amount:base.amount,rateFactor:base.rateFactor,rateSources,classes:phase?.classes,phaseTime:phase?pt:null,source:[...rateSources].sort((a,b)=>a.priority-b.priority).map(s=>s.source).join(' + ')+(phase?' · Phase: DWD HymecNG':''),key:'multi-priority/'+rateSources.map(s=>s.source+'/'+s.time).join('|')+'/'+(phase?pt:'model')};
 }
 function ownRadarFrame(date,latest=false){
- const obs=ownRadarObservation();if(obs&&(latest||obs.time===date.getTime()))return ownRadarWithModels(obs);
+ const obs=ownRadarObservation();if(obs&&(latest||obs.time===date.getTime())&&!(liveLayer==='satellite'&&liveMinute>0&&!latest))return ownRadarWithModels(obs);
  const t=date.getTime(),rv=typeof radarNowcastData!=='undefined'?radarNowcastData:null;
  if(typeof nowcastMapFrames!=='undefined'&&nowcastMapFrames.has(t)){const f=nowcastMapFrames.get(t),base=Number(f.key.split('/')[1]);if(Date.now()-base<=25*60000)return ownRadarWithModels(f)}
  if(!rv?.pointOnly&&ownRadarFresh(rv,25)&&t>radarBaseTime()){
@@ -3774,7 +3775,7 @@ function radarPackedSelection(sources,i,phaseCode,phaseTime,tolerance,defaultTim
   if(s.priority<priority){rate=v*s.factor;time=s.time;priority=s.priority}
   if(phaseCode>=2&&phaseCode<=10&&v>0&&Math.abs(s.time-phaseTime)<=300000&&s.priority<pairPriority){pairRate=v*s.factor;pairTime=s.time;pairPriority=s.priority}
  }
- return (rate>0||pairTime>time)&&useMatchedPhase(time,pairTime,phaseTime)?[pairRate,pairTime]:[rate,time];
+ return [rate,time]; // Same intensity-selection rule as point lookup.
 }
 // The worker receives only the fields needed for this image, not whole model runs.
 function radarWorkerPaint(frame,mode,colors,tolerance){
@@ -3864,7 +3865,7 @@ function readyRadarFrame(frame,mode='radar',allowOlder=false){
  const now=Date.now();return [...ownRadarCache.values()].filter(e=>e.mode===mode&&!e.frame.forecast&&e.frame.time<=now&&now-e.frame.time<=20*60000&&(!frame||e.frame.time<=frame.time)).sort((a,b)=>b.frame.time-a.frame.time)[0]?.frame||null;
 }
 function ownRadarSource(frame){return frame?'Eigenes Radar · '+frame.source:'Radarquelle wird geladen'}
-function ownRadarDescription(frame){const scans=frame?.rateSources?.map(s=>s.source+' '+localTime(s.time,{hour:'2-digit',minute:'2-digit'})).join(' / ');return (scans?'Radar-Verbund · '+scans+' · Europa/Schweiz bevorzugt, DWD ergänzend (max. 10 Min. Versatz) · ':frame?.rateFactor===1?'Momentanrate · ':frame?.forecast?'Radar-Nowcast · ':'')+(frame?.classes?'Beobachtete Niederschlagsart: HymecNG · max. 5 Min. Versatz':'Radarintensität')+(frame?.models?.length?' · fehlende Phase aus '+[...new Set(frame.models.map(m=>m.d.model))].join(' / ')+' geschätzt':frame?.classes?'':' · Art unbekannt')+(scans?' · Transparente Lücken: keine Radarmessung':'')}
+function ownRadarDescription(frame){const scans=frame?.rateSources?.map(s=>s.source+' '+localTime(s.time,{hour:'2-digit',minute:'2-digit'})).join(' / ');return (scans?'Radar-Verbund · '+scans+' · DWD bevorzugt, Europa/Schweiz ergänzend (max. 5 Min. Versatz) · ':frame?.rateFactor===1?'Momentanrate · ':frame?.forecast?'Radar-Nowcast · ':'')+(frame?.classes?'Beobachtete Niederschlagsart: HymecNG · max. 5 Min. Versatz':'Radarintensität')+(frame?.models?.length?' · fehlende Phase aus '+[...new Set(frame.models.map(m=>m.d.model))].join(' / ')+' geschätzt':frame?.classes?'':' · Art unbekannt')+(scans?' · Transparente Lücken: keine Radarmessung':'')}
 
 function drawRealRadar(ctx,b,date,onChange=scheduleMap,allowOlder=false,mode='radar',cloud=true){
  const requested=ownRadarFrame(date,allowOlder);
@@ -4415,10 +4416,10 @@ el('map-nowcast-forward').addEventListener('click',()=>selectLiveNowcast(90));
 el('map-live-lightning').addEventListener('change',e=>{liveLightning=e.target.checked;scheduleMap()});
 el('map-live-symbols').addEventListener('change',e=>{liveSymbols=e.target.checked;scheduleMap()});
 bindFullMap();
-function stepMap(direction,wrap=false){if(realForecastMap()){syncModelTimeline();const i=mapFutureHours.indexOf(mapHour),max=mapFutureHours.length-1;if(i<0)return;const next=i+direction;selectFutureMapIndex(wrap&&next>max?0:clamp(next,0,max));scheduleMap();return}const slider=el('map-time'),step=+slider.step||1,min=+slider.min,max=+slider.max;if(mapSource==='live'&&liveHourlyMode()){let hour=liveTempHour+direction;if(hour<0&&liveTempDay>0){liveTempDay--;hour=23}else if(hour>23&&liveTempDay<2){liveTempDay++;hour=0}else if(wrap&&hour>23){liveTempDay=0;hour=0}liveTempHour=clamp(hour,0,23)}else{const value=(mapSource==='live'?liveMinute:mapHour)+direction*step,next=wrap&&value>max?min:clamp(value,min,max);if(mapSource==='live')liveMinute=next;else mapHour=next;slider.value=next}scheduleMap()}
-el('satellite-now').addEventListener('click',()=>{stopPlay();liveMinute=0;scheduleMap()});
+function stepMap(direction,wrap=false){if(realForecastMap()){syncModelTimeline();const i=mapFutureHours.indexOf(mapHour),max=mapFutureHours.length-1;if(i<0)return;const next=i+direction;selectFutureMapIndex(wrap&&next>max?0:clamp(next,0,max));scheduleMap();return}const slider=el('map-time'),step=+slider.step||1,min=+slider.min,max=+slider.max;if(mapSource==='live'&&liveHourlyMode()){let hour=liveTempHour+direction;if(hour<0&&liveTempDay>0){liveTempDay--;hour=23}else if(hour>23&&liveTempDay<2){liveTempDay++;hour=0}else if(wrap&&hour>23){liveTempDay=0;hour=0}liveTempHour=clamp(hour,0,23)}else{const value=(mapSource==='live'?liveMinute:mapHour)+direction*step,next=wrap&&value>max?min:clamp(value,min,max);if(mapSource==='live'){if(liveMinute===0||next===0)satelliteTimelineAnchor=null;liveMinute=next;}else mapHour=next;slider.value=next}scheduleMap()}
+el('satellite-now').addEventListener('click',()=>{stopPlay();satelliteTimelineAnchor=null;liveMinute=0;scheduleMap()});
 el('map-back').addEventListener('click',()=>{stopPlay();stepMap(-1)});el('map-next').addEventListener('click',()=>{stopPlay();stepMap(1)});
-el('map-time').addEventListener('input',e=>{stopPlay();const value=+e.target.value;if(realForecastMap())selectFutureMapIndex(value);else if(mapSource==='live'){if(liveHourlyMode())liveTempHour=value;else liveMinute=value}else mapHour=value;scheduleMap()});
+el('map-time').addEventListener('input',e=>{stopPlay();const value=+e.target.value;if(realForecastMap())selectFutureMapIndex(value);else if(mapSource==='live'){if(liveHourlyMode())liveTempHour=value;else{if(liveMinute===0||value===0)satelliteTimelineAnchor=null;liveMinute=value}}else mapHour=value;scheduleMap()});
 el('map-play').addEventListener('click',()=>{if(mapTimer!==null){stopPlay();return}el('map-play').textContent='Ⅱ';el('map-play').setAttribute('aria-label','Wiedergabe pausieren');mapTimer=setInterval(()=>{if(document.hidden){stopPlay();return}if(mapSource==='live'&&realLiveEnabled&&liveLayer==='satellite'&&liveMinute!==0&&timelineWaiting())return;if(mapSource==='live'&&realLiveEnabled&&['radar','types','snowfall'].includes(liveLayer)&&!liveHourlyMode()){const date=realLiveTime(),frame=ownRadarFrame(date,liveMinute===0);if(!frame){fetchNowcastMapFrame(date);prefetchNextRadar(date);stepMap(1,true);return;}if(!readyRadarFrame(frame,liveLayer,false)){ownRadarRaster(frame,liveLayer);return;}}const d=realData();if(mapSource==='model'&&d?.nativeMap&&!nativeFieldsReady(d,fields[mapLayer],mapHour)&&mapFieldRequirements(d,fields[mapLayer],mapHour).some(([h,k])=>nativeFieldLoading.has(d.file+'/'+d.generated+'/'+h+'/'+k)))return;stepMap(1,true)},750)});
 // Re-evaluate at the civil hour boundary even if the user leaves the map open.
 // Returning from a suspended mobile tab must also immediately discard old times.
