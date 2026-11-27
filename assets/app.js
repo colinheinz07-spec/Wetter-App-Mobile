@@ -832,7 +832,7 @@ function drawLiveStrikes(ctx,b){
  }
  ctx.restore();
 }
-function radarSampleLabel(r){if(!r||!Number.isFinite(r.rate))return 'Keine Messung';if(r.rate===0)return 'Trocken · 0 mm/h';const rate=r.rate<.1?'<0,1':localFormat(r.rate);return (r.code===1?'Niederschlag (Art offen)':radarTypeNames[r.code])+(r.estimated?' (geschätzt)':'')+' · '+rate+' mm/h';}
+function radarSampleLabel(r){if(!r||!Number.isFinite(r.rate))return 'Keine Messung';if(r.rate===0)return 'Trocken · 0 mm/h';const rate=r.rate<.1?'unter 0,1':localFormat(r.rate,1);return (r.code===1?'Niederschlag (Art offen)':radarTypeNames[r.code])+(r.estimated?' (geschätzt)':'')+' · '+rate+' mm/h';}
 function liveSampleText(lon,lat){
  if(liveLayer==='satellite'&&realLiveEnabled&&liveMinute!==0){
   const info=selectedSatelliteInfo(),point=[lon,lat],cloud=WeatherObservation.sampleField(info.mask,point);
@@ -2508,7 +2508,7 @@ function forecastPeriod(point,start,now,end=start+6*HOUR_MS,preferred=null,exact
  const nativeCoverage=d=>{const run=Date.parse(d.run),step=d.hours[1],lo=Math.floor((start-run)/HOUR_MS/step)*step,hi=Math.ceil((end-run)/HOUR_MS/step)*step;return (end<=now||now-run<=modelAgeLimit(d.model)*HOUR_MS)&&d.hours.filter(h=>h>=lo&&h<=hi).every(h=>Number.isFinite(nativeTemperatureValue(d,point,h,'temp2'))&&nativeTemperatureValue(d,point,h,'temp2')!==null);};
  // Keep the local model hierarchy ahead of global resolution. Only fresh
  // forecast cycles may outrank an archive; D2/EU are preferred for 0–48 h.
- candidates.sort((a,b)=>{const fresh=d=>end<=now||now-Date.parse(d.run)<=modelAgeLimit(d.model)*HOUR_MS;return Number(fresh(b))-Number(fresh(a))||forecastPriority.indexOf(a.model)-forecastPriority.indexOf(b.model)||Number(nativeCoverage(b))-Number(nativeCoverage(a))||Date.parse(b.run)-Date.parse(a.run)||a.hours[1]-b.hours[1]});
+ candidates.sort((a,b)=>{const fresh=d=>end<=now||now-Date.parse(d.run)<=(d.model==='ICON-D2'?6:d.model==='ICON-EU'?12:modelAgeLimit(d.model))*HOUR_MS;return Number(fresh(b))-Number(fresh(a))||forecastPriority.indexOf(a.model)-forecastPriority.indexOf(b.model)||Number(nativeCoverage(b))-Number(nativeCoverage(a))||Date.parse(b.run)-Date.parse(a.run)||a.hours[1]-b.hours[1]});
  let fallback=null;
  for(const d of candidates){
   const run=Date.parse(d.run),a=(start-run)/HOUR_MS,b=(end-run)/HOUR_MS,step=d.hours[1];
@@ -3179,8 +3179,11 @@ function renderRealWeather(){
  const hero='<section class="panel hero"><div class="hero-head"><span class="tag">'+liveHeroTag(live.temp2,last)+'</span><details class="hourly-info"><summary>ⓘ</summary><p>'+source+'</p></details></div><div class="hero-weather">'+liveHeroWeatherHTML(f,radar,point,now,live)+'</div><div class="metrics">'+liveMetricsHTML(live,point,now)+'</div><div class="hour-detail"><div class="detail-item">Nächste 60 Min.<b>'+quantityRange(upcoming1)+'</b>'+freshSnowHint(upcomingSnow1,now+HOUR_MS)+'</div><div class="detail-item">Nächste 120 Min.<b>'+quantityRange(upcoming2)+'</b>'+freshSnowHint(upcomingSnow2,now+2*HOUR_MS)+'</div><div class="detail-item">Niederschlagsprognose<b>'+(hasRV?'DWD RV + Modell · '+localTime(Date.parse(radarNowcastData.time),{hour:'2-digit',minute:'2-digit'}):'Modell · kein aktueller RV-Nowcast')+'</b></div></div></section>';
  const night=upcomingNight(days,now),nightHint=Number.isFinite(night.lo)?'<p class="small muted night-summary"><b>Nachtminimum: '+temperatureText(night.lo)+' °C</b> · '+localIntervalLabel(night.start,night.end)+' Uhr · Tiefstwert '+(Number.isFinite(night.minHour?.start)&&Number.isFinite(night.minHour?.end)?localIntervalLabel(night.minHour.start,night.minHour.end)+' Uhr':Number.isFinite(night.minHour?.time)?localTime(night.minHour.time,{hour:'2-digit',minute:'2-digit'})+' Uhr':'Zeit unbekannt')+' · '+(night.complete?'aus Stundenwerten':'nur verfügbare Stunden')+'</p>':'';
  const details=items=>items.map(([label,value])=>'<div class="detail-item">'+label+'<b>'+value+'</b></div>').join('');
- const detail=a=>{const h=a.frame,read=id=>a.currentSamples?(a.currentSamples[id]?.value??NaN):frameVal(h,id),model=a.model&&h?liveEscape(a.model+' · '+localTime(Date.parse(h.d.run),{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})):'—';
- const values=details([['Temperatur',temperatureText(a.temperature)+' °C'],['Wetter',liveEscape(a.weather?.condition||'—')],['Niederschlag',quantityRange(a.rain)],['Neuschnee',snowfallRangeText(a)],['Wind',localFormat(read('wind'))+' km/h'],['Böen',localFormat(read('gust'))+' km/h'],['Taupunkt',temperatureText(read('dew'))+' °C'],['Bewölkung',localFormat(read('cloud'))+' %'],['Luftdruck',localFormat(read('slp'))+' hPa']]);
+ const detail=a=>{const h=a.frame,read=id=>a.currentSamples?(a.currentSamples[id]?.value??NaN):frameVal(h,id),model=a.model&&h?liveEscape(a.model+' · '+localTime(Date.parse(h.d.run),{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+(now-Date.parse(h.d.run)>6*HOUR_MS&&a.model==='ICON-D2'?' · älterer Lauf':'')):'—';
+ const future=(a.segments||[]).filter(r=>r.end>Math.max(now,a.start)&&Number.isFinite(r.amount)&&r.source!=='Beobachtung fehlt');
+ const futureComplete=a.currentHour&&future.length&&Math.abs(future[0].start-now)<1000&&future.at(-1).end===a.end&&future.every((r,i)=>i===0||r.start===future[i-1].end);
+ const rain=Number.isFinite(a.rain)?quantityRange(a.rain):futureComplete?quantityRange(future.reduce((sum,r)=>sum+r.amount,0))+' (Restprognose)': '—';
+ const values=details([['Temperatur',temperatureText(a.temperature)+' °C'],['Wetter',liveEscape(a.weather?.condition||'—')],['Niederschlag',rain],['Neuschnee',snowfallRangeText(a)],['Wind',localFormat(read('wind'))+' km/h'],['Böen',localFormat(read('gust'))+' km/h'],['Taupunkt',temperatureText(read('dew'))+' °C'],['Bewölkung',localFormat(read('cloud'))+' %'],['Luftdruck',localFormat(read('slp'))+' hPa']]);
  const sources=[['Modell',model],['Temperatur',liveEscape(a.temperatureSample?.source||'Modell')],['Wetter',liveEscape(a.weather?.source||'Modell')],['Niederschlag',liveEscape(a.rainSource||'—')],...(a.currentHour?[['Radar',Number.isFinite(a.observedRate)?localFormat(a.observedRate)+' mm/h':'—']]:[])];
  return '<div class="hour-detail-heading">'+localIntervalLabel(a.start,a.end)+' Uhr'+(a.currentHour?' · Jetzt':'')+'</div>'+values+'<details class="hourly-info hour-source-details"><summary>ⓘ Datenquellen</summary>'+sources.map(([key,value])=>'<p><b>'+key+':</b> '+value+'</p>').join('')+'</details>';};
  const hourly='<section class="panel hourly"><div class="section-head"><div><h2>Stundenverlauf</h2><p>Nächste 24 Stunden</p></div><span class="badge">1 h</span></div>'+nightHint+'<div class="hour-scroll">'+next.map((a,i)=>'<button class="hour '+(selectedHour===i?'active':'')+'" data-hour="'+i+'" aria-pressed="'+(selectedHour===i)+'"><span class="hour-time">'+localIntervalLabel(a.start,a.end).replace(/:00/g,'')+' Uhr</span>'+ (summaryWeatherIcon(a.weather)||'<span class="hour-empty">—</span>')+'<strong>'+temperatureText(a.temperature)+'°</strong><span class="rain">'+(a.currentHour?'<small class="snow-label">'+(a.temperatureSample?'Jetzt':'Prognose · keine Analyse')+'</small>'+liveEscape(a.weather.condition)+(Number.isFinite(a.observedRate)&&a.observedRate>0?'<small class="snow-label">'+localFormat(a.observedRate)+' mm/h Radar</small>':''):forecastPrecipText(a,'',true))+'</span></button>').join('')+'</div><details class="hourly-info"><summary>ⓘ Prognoseinformationen</summary><p>Die laufende Stunde übernimmt Temperatur und Wetterzustand aus der aktuellen Ortsanalyse bzw. dem Radar. Zukünftige Stunden zeigen die Modelltemperatur am Intervallende. Niederschlags-Stundensummen bleiben Prognosen (Radar-Nowcast + Modell), keine Messsummen.</p>'+(!next.every(a=>Number.isFinite(a.rain))?'<p>Stundenmengen aus DWD-Radarprognose und stündlichen Modellwerten, soweit vollständig verfügbar. Temperatur zwischen gröberen Modellzeitpunkten zeitlich interpoliert; keine erfundenen Stundenmengen.</p>':'')+'</details><div class="hour-detail" id="hour-detail">'+detail(next[selectedHour])+'</div></section>';
@@ -3658,6 +3661,7 @@ function radarModelPhase(models,lon,lat){
 }
 function ownRadarWithModels(frame){
  if(!frame||(!frame.amount&&!frame.rateSources))return frame;
+ if(frame.models?.length)return frame;
  const models=radarPhaseModels(frame.time,!!frame.forecast);if(!models.length)return frame;
  return {...frame,models,key:frame.key+'/model/'+models.map(m=>m.key).join('|')};
 }
@@ -3667,7 +3671,7 @@ function ownRadarWithModels(frame){
 // Only combine intensity and phase when their observation times and grids match.
 const ownRadarCache=new Map();
 const ownRadarColors={
- 1:['#a0dbff','#68baff','#3694ee','#215ad4','#4b1594'],
+ 1:['#b4b9c4','#929aa8','#778393','#5d697a','#444e60'],
  2:['#a0dbff','#68baff','#3694ee','#215ad4','#4b1594'],
  3:['#319dff','#0879df','#1260dc','#2736b7','#56178e'],
  4:['#ffd790','#ffb34c','#f68727','#e74b1b','#ae2c12'],
