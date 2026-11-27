@@ -2600,7 +2600,7 @@ function adjustedShortRangeValue(raw,baseline,sample,now,target,id){
 function applyCurrentHour(h,current){
  if(!current)return h;
  const sample=current.temperature,valid=['observation','analysis','estimate'].includes(sample?.kind)&&Number.isFinite(sample.value);
- if(h.start===current.start)return {...h,temperature:valid?sample.value:h.temperature,cloud:current.live?.cloud?.value??h.cloud,temperatureSample:valid?sample:null,currentHour:true,currentSamples:current.live||null,weather:current.weather,observedRate:current.rate};
+ if(h.start===current.start)return {...h,temperature:valid?sample.value:h.temperature,cloud:Number.isFinite(current.live?.cloud?.value)?current.live.cloud.value:h.cloud,temperatureSample:valid?sample:null,currentHour:true,currentSamples:current.live||null,weather:current.weather,observedRate:current.rate};
  if(h.start<current.start||!Number.isFinite(current.now)||h.end-current.now>=3*HOUR_MS)return h;
  const baseline=(id,sample)=>h.frame?.d&&Number.isFinite(sample?.time)?frameVal(frameAt(h.frame.d,h.point,sample.time),id):NaN;
  const c=current.live?.cloud,cloud=adjustedShortRangeValue(h.cloud,baseline('cloud',c),c,current.now,h.end,'cloud');
@@ -2629,9 +2629,10 @@ function summarizeTemperatureHours(hours){
 function harmonizeLocalPeriod(p,point,now,current=null){
  const first=Math.floor(now/HOUR_MS)*HOUR_MS,ledger=typeof WeatherObservation!=='undefined'&&point&&p.start>=dailyBoundaries(now,0)[0];if((p.end<=first&&!ledger)||p.start>=first+24*HOUR_MS||!Number.isInteger(p.duration))return p;
  const localHours=Array.from({length:p.duration},(_,i)=>localPrecipitationHour(point,p.start+i*HOUR_MS,now,p,current));
- if(!localHours.every(h=>Number.isFinite(h.rain))){const radarUsed=localHours.some(h=>h.radarUsed);return {...p,localHours,radarUsed,...(radarUsed||ledger&&p.start<now?{rain:NaN}: {})};}
+ const clouds=localHours.map(h=>h.cloud),cloud=clouds.every(Number.isFinite)?clouds.reduce((sum,v)=>sum+v,0)/clouds.length:p.cloud;
+ if(!localHours.every(h=>Number.isFinite(h.rain))){const radarUsed=localHours.some(h=>h.radarUsed);return {...p,localHours,cloud,radarUsed,...(radarUsed||ledger&&p.start<now?{rain:NaN}: {})};}
  const rain=localHours.reduce((sum,h)=>sum+h.rain,0),intervals=localHours.map(h=>({frame:h.frame,start:h.start,end:h.end,hours:1,amount:h.rain})),radarUsed=localHours.some(h=>h.radarUsed);
- return {...p,localHours,rain,intervals,radarUsed,rainEstimated:false,weather:forecastIcon(intervals,rain,p.duration,p.cloud,isNightAt((p.start+p.end)/2,point))};
+ return {...p,localHours,rain,cloud,intervals,radarUsed,rainEstimated:false,weather:forecastIcon(intervals,rain,p.duration,cloud,isNightAt((p.start+p.end)/2,point))};
 }
 function harmonizePeriodTemperature(p,point){
  const temperatureHours=p.localHours||Array.from({length:p.duration},(_,i)=>{const start=p.start+i*HOUR_MS;return {start,end:start+HOUR_MS,temperature:periodHourTemperature(p,point,start)};});
@@ -2724,6 +2725,7 @@ d.observationCount=extrema.observedCount;d.futureDaytimeCount=extrema.futureCoun
   if(nightHistory.length>=2||nightFuture.length){d.lo=night.lo;d.minHour=night.minHour;d.night={...d.night,lo:night.lo,minHour:night.minHour,complete:nightHistory.length>=2&&nightFuture.every(h=>Number.isFinite(h.temperature)),source:nightHistory.length>=2?'local-observations':'forecast'};}
   const end=Math.floor(now/(5*60000))*5*60000,observed=WeatherObservation.accumulation(point,d.start,end);
   const future=hourlyRainWindow(d.periods.flatMap(p=>p.localHours||[]),now,d.end);
+  for(const row of extrema.history)if(!history.some(x=>x.time===row.time))history.push(row);
   const latest=current?.temperature;
   // A current sample can extend the observed calendar-day range, but must not
   // overwrite a missing daytime maximum or the previous night's minimum.
