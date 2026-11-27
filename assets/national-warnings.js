@@ -161,22 +161,46 @@ function markerCandidates(){const byKind=new Map();return {add(kind,level,p){con
 function collectOfficialMarkers(collector,a){const kind=officialKind(a);for(const poly of a.polygons){if(!poly[0]?.length)continue;const b=polygonBounds(poly),anchor=polygonAnchor(poly,b);if(anchor)collector.add(kind,a.level,anchor);const [x1,y1]=project(b[0],b[3]),[x2,y2]=project(b[2],b[1]);for(let y=Math.ceil(y1/29)*29;y<=y2;y+=29)for(let x=Math.ceil(x1/29)*29;x<=x2;x+=29){const p=unproject(x,y,MAP_W,MAP_H);if(inPolygons(p,[poly]))collector.add(kind,a.level,p)}}}
 function selectMarkers(collector){const groups=[...collector.byKind.values()].map(m=>[...m.values()].sort((a,b)=>b.level-a.level||a.dist-b.dist)).sort((a,b)=>b[0].level-a[0].level||a.length-b.length),used=[];const fit=c=>used.every(p=>Math.hypot(p.x-c.x,p.y-c.y)>=54);for(const group of groups){const c=group.find(fit);if(c)used.push(c)}const all=groups.flat().sort((a,b)=>b.level-a.level||a.dist-b.dist);for(const c of all){if(used.length>=36)break;if(fit(c))used.push(c)}return used}
 function markerMarkup(m){const x=rounded(m.x),y=rounded(m.y);return `<g data-warning-kind="${m.kind}" data-warning-lon="${m.p[0]}" data-warning-lat="${m.p[1]}" transform="translate(${x} ${y})" role="img" aria-label="${esc(ICON_NAMES[m.kind])}"><title>${esc(ICON_NAMES[m.kind])}</title><g class="nw-zoom-stable"><circle r="18.5" fill="#fff" stroke="#24364a" stroke-width="2"/><g transform="translate(-13.5 -13.5) scale(1.125)">${warningGlyph(m.kind)}</g></g></g>`}
-// Trace the union of adjacent grid cells, rather than painting individual
-// rounded rectangles (which produced visible seams). Preserve holes and
-// isolated cells; round only a small fraction of a cell at each corner.
 function gridContour(values,nx,ny,threshold,exact=false){
- const stride=nx+1,edges=new Uint8Array(stride*(ny+1)),dx=[1,0,-1,0],dy=[0,1,0,-1],inside=(x,y)=>x>=0&&y>=0&&x<nx&&y<ny&&(exact?values[y*nx+x]===threshold:values[y*nx+x]>=threshold&&values[y*nx+x]<=4);
- for(let y=0;y<ny;y++)for(let x=0;x<nx;x++)if(inside(x,y)){const i=y*stride+x;if(!inside(x,y-1))edges[i]|=1;if(!inside(x+1,y))edges[i+1]|=2;if(!inside(x,y+1))edges[i+stride+1]|=4;if(!inside(x-1,y))edges[i+stride]|=8;}
- const fmt=p=>p.map(x=>Number(x.toFixed(2))).join(' '),toward=(a,b)=>{const d=Math.hypot(b[0]-a[0],b[1]-a[1]);return [a[0]+(b[0]-a[0])*Math.min(.24,d/3)/d,a[1]+(b[1]-a[1])*Math.min(.24,d/3)/d]};
- let path='';for(let start=0;start<edges.length;start++)while(edges[start]){let v=start,d=0;while(!(edges[v]&(1<<d)))d++;const ring=[],first=d;let closed=false;do{const x=v%stride,y=Math.floor(v/stride);edges[v]&=~(1<<d);ring.push([x,y,d]);v+=dx[d]+dy[d]*stride;if(v===start){closed=true;break}const next=[(d+1)%4,d,(d+3)%4,(d+2)%4].find(k=>edges[v]&(1<<k));if(next===undefined)break;d=next;}while(true);
-  if(!closed||ring.length<4)continue;const corners=ring.filter((p,i)=>p[2]!==ring[(i+ring.length-1)%ring.length][2]);if(corners.length<3)continue;
-  path+='M'+fmt(toward(corners[0],corners.at(-1)));for(let i=0;i<corners.length;i++){const p=corners[i],a=toward(p,corners[(i+corners.length-1)%corners.length]),b=toward(p,corners[(i+1)%corners.length]);path+='L'+fmt(a)+'Q'+fmt(p.slice(0,2))+' '+fmt(b)}path+='Z';
- }return path;
+ // Marching squares on cell centres. Ambiguous diagonal cells stay separate.
+ const inside=(x,y)=>x>=0&&y>=0&&x<nx&&y<ny&&(exact?values[y*nx+x]===threshold:values[y*nx+x]>=threshold&&values[y*nx+x]<=4);
+ const stride=2*nx+3,graph=new Map(),key=(x,y)=>(y+1)*stride+x+1;
+ const pairs=[[],[[3,0]],[[0,1]],[[3,1]],[[1,2]],[[3,0],[1,2]],[[0,2]],[[3,2]],[[2,3]],[[0,2]],[[0,1],[2,3]],[[1,2]],[[1,3]],[[0,1]],[[3,0]],[]];
+ const link=(a,b)=>{if(!graph.has(a))graph.set(a,[]);if(!graph.has(b))graph.set(b,[]);graph.get(a).push(b);graph.get(b).push(a)};
+ for(let y=-1;y<ny;y++)for(let x=-1;x<nx;x++){
+  const code=(inside(x,y)?1:0)|(inside(x+1,y)?2:0)|(inside(x+1,y+1)?4:0)|(inside(x,y+1)?8:0);
+  if(!pairs[code].length)continue;
+  const a=[key(2*x+2,2*y+1),key(2*x+3,2*y+2),key(2*x+2,2*y+3),key(2*x+1,2*y+2)];
+  for(const [i,j] of pairs[code])link(a[i],a[j]);
+ }
+ const pt=k=>[(k%stride-1)/2,(Math.floor(k/stride)-1)/2],fmt=p=>p.map(v=>Number(v.toFixed(3))).join(' ');
+ const toward=(a,b)=>{const d=Math.hypot(b[0]-a[0],b[1]-a[1]),t=Math.min(.22,d/3)/d;return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]};
+ let path='';
+ while(graph.size){
+  const start=graph.keys().next().value,ring=[];let v=start,prev=null,closed=false;
+  do{const links=graph.get(v);if(!links)break;const next=links.find(k=>k!==prev);ring.push(pt(v));graph.delete(v);if(next===start){closed=true;break}if(next===undefined)break;prev=v;v=next;}while(true);
+  if(!closed||ring.length<3)continue;
+  const corners=ring.filter((p,i)=>{const a=ring[(i+ring.length-1)%ring.length],b=ring[(i+1)%ring.length];return (p[0]-a[0])*(b[1]-p[1])!==(p[1]-a[1])*(b[0]-p[0])});
+  if(corners.length<3)continue;
+  path+='M'+fmt(toward(corners[0],corners.at(-1)));
+  for(let i=0;i<corners.length;i++){const p=corners[i],a=toward(p,corners[(i+corners.length-1)%corners.length]),b=toward(p,corners[(i+1)%corners.length]);path+='L'+fmt(a)+'Q'+fmt(p)+' '+fmt(b)}path+='Z';
+ }
+ return path;
 }
-function contourMarkup(values,g,opacity,missing=false){const [x,y]=project(g.west-g.step/2,g.south-g.step/2);return `<g opacity="${opacity}" transform="translate(${x} ${y}) scale(${g.step*MAP_DX} ${-g.step*MAP_DY})" fill-rule="evenodd">${missing?'<path fill="#85929b" opacity=".48" d="'+gridContour(values,g.nx,g.ny,5,true)+'"/>':''}${OWN.map((color,i)=>{const path=gridContour(values,g.nx,g.ny,i+1);return path?`<path fill="${color}" d="${path}"/>`:''}).join('')}</g>`}
+function contourMarkup(values,g,missing=false){
+ const [x,y]=project(g.west-g.step/2,g.south-g.step/2),transform=`translate(${x} ${y}) scale(${g.step*MAP_DX} ${-g.step*MAP_DY})`;
+ const make=(color,level,exact=false)=>{const d=gridContour(values,g.nx,g.ny,level,exact);return d?`<path transform="${transform}" fill-rule="evenodd" fill="${color}" d="${d}"/>`:''};
+ // One opaque colour per severity, regardless of the data source.
+ return [missing?make('#85929b',5,true):'',...OWN.map((color,i)=>make(color,i+1))];
+}
+function composeWarningAreas(areas){
+ // Draw all source masks by ascending severity, not by source order.
+ // Unknown cells stay below all warnings; high severity cannot be obscured.
+ return '<g clip-path="url(#nw-de-clip)">'+[0,1,2,3,4].map(i=>areas.map(a=>a?.[i]||'').join('')).join('')+'</g>';
+}
 function validRisk(d){const g=d?.grid;return d?.schema===1&&g&&(g.nx===481&&g.ny===411&&g.step===.02||g.nx===193&&g.ny===165&&g.step===.05||g.nx===241&&g.ny===206&&g.step===.04)&&g.west===5.5&&g.south===47&&Array.isArray(d.models)&&Array.isArray(d.periods)&&d.periods.length<=(g.step===.04?25:9)&&d.periods.every(p=>Number.isFinite(p.start)&&p.end-p.start===10800&&Object.keys(TYPES).every(k=>OPTIONAL.includes(k)&&p.layers?.[k]===undefined||typeof p.layers?.[k]==='string'&&p.layers[k].length===4*Math.ceil(g.nx*g.ny/3)))}
 // Export side-effect-free rules for unit tests.
-if(typeof module!=='undefined'&&module.exports){module.exports={radarKind,radarPhaseCode,eventsInWindow,alertStage,modelStage,stageMatches,groupWarnings,areaStats,modelLevel,pointInRing,inPolygons,pickPeriods,cellsForPoint,validRisk,fresh,project,unproject,mapGeometry,districtAt,gridContour,cityMarkup,officialKind,warningGlyph,markerCandidates,collectOfficialMarkers,selectMarkers,markerMarkup,mapView,screenMap,mapPoint,zoomMap,panMap,MAX_ZOOM,MAP_W,MAP_H,stormFresh,stormKinds,stormTitle,stormLevel,direction,stormCorridor,stormHit,normalizeOfficial};return}
+if(typeof module!=='undefined'&&module.exports){module.exports={radarKind,radarPhaseCode,eventsInWindow,alertStage,modelStage,stageMatches,groupWarnings,areaStats,modelLevel,pointInRing,inPolygons,pickPeriods,cellsForPoint,validRisk,fresh,project,unproject,mapGeometry,districtAt,gridContour,contourMarkup,composeWarningAreas,cityMarkup,officialKind,warningGlyph,markerCandidates,collectOfficialMarkers,selectMarkers,markerMarkup,mapView,screenMap,mapPoint,zoomMap,panMap,MAX_ZOOM,MAP_W,MAP_H,stormFresh,stormKinds,stormTitle,stormLevel,direction,stormCorridor,stormHit,normalizeOfficial};return}
 const host=document.getElementById('national-warning');if(!host)return;
 let stage='active',filter='all',windowId='all',point=null,risk=null,watchRisk=null,errorWatch=false,stormData=null,selectedStorm=null,request=null,last=0,lastRiskCheck=0,errorR=false,errorStorm=false,showRadar=true;
 host.innerHTML=`<div class="nw-head"><div><h2>Eigene Warnlage Deutschland</h2><p>Aktive Warnungen bis 24 Stunden · Watches bis 96 Stunden</p></div><button type="button" id="nw-refresh" aria-label="Warnlage aktualisieren">↻</button></div>
@@ -233,11 +257,11 @@ function modelArea(periods,g,ks,collector){
  const cacheKey=[displayRisk(now())?.generated,g.step,stage,filter,...periods.map(p=>p.start)].join('/'),cached=areaCache.get(cacheKey);if(cached){for(const m of cached.markers)collector.add(m.kind,m.level,m.p);return cached.markup}
  const n=g.nx*g.ny,level=new Uint8Array(n),known=new Uint8Array(n);for(const k of ks){const hazard=new Uint8Array(n);for(const p of periods){const a=p.decoded[k];for(let i=0;i<n;i++){if(a[i]!==255)known[i]=1;if(stageMatches(a[i],stage)){const l=modelLevel(a[i]);level[i]=Math.max(level[i],l);hazard[i]=Math.max(hazard[i],l)}}}const stride=Math.max(1,Math.round(.1/g.step));for(let y=0;y<g.ny;y++)for(let x=0;x<g.nx;x++){const i=y*g.nx+x;if(hazard[i]&&((x%stride===0&&y%stride===0)||(x===0||!hazard[i-1])&&(y===0||!hazard[i-g.nx]))&&germanCell(g,i))collector.add(k,hazard[i],[g.west+x*g.step,g.south+y*g.step])}}
  for(let i=0;i<n;i++)if(!known[i])level[i]=5;
- const markup='<g clip-path="url(#nw-de-clip)">'+contourMarkup(level,g,stage==='risk'?.62:.83,true)+'</g>';areaCache.set(cacheKey,{markup,markers:[...collector.byKind.values()].flatMap(m=>[...m.values()])});while(areaCache.size>8)areaCache.delete(areaCache.keys().next().value);return markup;
+ const markup=contourMarkup(level,g,true);areaCache.set(cacheKey,{markup,markers:[...collector.byKind.values()].flatMap(m=>[...m.values()])});while(areaCache.size>8)areaCache.delete(areaCache.keys().next().value);return markup;
 }
 function radarWarningArea(rows,collector,kindFilter='all'){
  const phase=radarPhaseContext(),key=radarCache.key+'|'+(phase?.time??'unknown');if(activeRadarGeometry.key!==key){const markers=[],step=.01,nx=961,ny=821,all=new Uint8Array(nx*ny),byKind=new Map();for(let y=0;y<ny;y++)for(let x=0;x<nx;x++){const p=[5.5+x*step,47+y*step],{rate,time}=radarSampleAt(rows,p),l=rate>=60?3:rate>=30?2:rate>=15?1:0,i=y*nx+x;if(!l)continue;const kind=radarKind(radarPhaseCode(phase,p,time));if(!byKind.has(kind))byKind.set(kind,new Uint8Array(nx*ny));const levels=byKind.get(kind);levels[i]=all[i]=l;if(((x%8===0&&y%8===0)||(!x||!levels[i-1])&&(!y||!levels[i-nx]))&&inGermany(p))markers.push({kind,level:l,p})}activeRadarGeometry={key,grid:{west:5.5,south:47,step,nx,ny},all,byKind,paths:new Map(),markers}}
- const a=activeRadarGeometry,levels=kindFilter==='all'?a.all:a.byKind.get(kindFilter);for(const m of a.markers)if(kindFilter==='all'||m.kind===kindFilter)collector.add(m.kind,m.level,m.p);if(!levels)return '';if(!a.paths.has(kindFilter))a.paths.set(kindFilter,contourMarkup(levels,a.grid,.70));return `<g clip-path="url(#nw-de-clip)">${a.paths.get(kindFilter)}</g>`;
+ const a=activeRadarGeometry,levels=kindFilter==='all'?a.all:a.byKind.get(kindFilter);for(const m of a.markers)if(kindFilter==='all'||m.kind===kindFilter)collector.add(m.kind,m.level,m.p);if(!levels)return '';if(!a.paths.has(kindFilter))a.paths.set(kindFilter,contourMarkup(levels,a.grid));return a.paths.get(kindFilter);
 }
 let frostCache=null;
 function observedFrost(collector){
@@ -245,8 +269,8 @@ function observedFrost(collector){
  const key=globalThis.WeatherObservation.revision;
  if(frostCache?.key!==key){const g=f.grid,levels=new Uint8Array(f.values.length),markers=[];
   for(let i=0;i<levels.length;i++){const v=f.values[i];if(!(v<0))continue;const l=v<=-20?4:v<=-10?3:v<=-5?2:1;levels[i]=l;const x=i%g.nx,y=Math.floor(i/g.nx);if(x%5===0&&y%5===0){const p=[g.west+x*g.step,g.south+y*g.step];if(inGermany(p))markers.push({level:l,p});}}
-  frostCache={key,markers,markup:contourMarkup(levels,g,.78)};
- }for(const m of frostCache.markers)collector.add('frost',m.level,m.p);return `<g clip-path="url(#nw-de-clip)">${frostCache.markup}</g>`;
+  frostCache={key,markers,markup:contourMarkup(levels,g)};
+ }for(const m of frostCache.markers)collector.add('frost',m.level,m.p);return frostCache.markup;
 }
 function fogWindow(){return stage!=='upcoming'&&['all','now','0-6'].includes(windowId)}
 let fogCache=null;
@@ -254,14 +278,14 @@ function currentFogRisk(){
  const o=globalThis.WeatherObservation;if(!o?.mapField)return null;const f=['temp2','dew','rh2','wind'].map(k=>o.mapField(k));if(!f.every(x=>x?.kind==='analysis'&&!x.stale&&x.time===f[0].time))return null;
  if(fogCache?.time===f[0].time)return fogCache;
  const g=f[0].grid,levels=new Uint8Array(g.nx*g.ny),markers=[];for(let i=0;i<levels.length;i++)if(o.fogPotential(f[0].values[i],f[1].values[i],f[2].values[i],f[3].values[i])){levels[i]=1;const x=i%g.nx,y=Math.floor(i/g.nx);if(x%8===0&&y%8===0){const p=[g.west+x*g.step,g.south+y*g.step];if(inGermany(p))markers.push(p)}}
- fogCache={time:f[0].time,markers,markup:contourMarkup(levels,g,.55)};return fogCache;
+ fogCache={time:f[0].time,markers,markup:contourMarkup(levels,g)};return fogCache;
 }
 function currentFogArea(collector){
  const o=globalThis.WeatherObservation;if(!o)return '';
  if(stage==='active'&&(filter==='all'||filter==='fog')){for(const r of o.fogStations?.()||[]){const p=[r.lon,r.lat];if(inGermany(p))collector.add('fog',r.values.visibility<150?2:1,p)}}
  // The standard Germany view includes a SEPARATE potential overlay. Its
  // symbol and label must never imply that fog has already been observed.
- if((stage==='active'||stage==='risk')&&(filter==='all'||filter==='fogpotential')){const f=currentFogRisk();if(!f)return '';for(const p of f.markers)collector.add('fogpotential',1,p);return `<g clip-path="url(#nw-de-clip)">${f.markup}</g>`;}
+ if((stage==='active'||stage==='risk')&&(filter==='all'||filter==='fogpotential')){const f=currentFogRisk();if(!f)return '';for(const p of f.markers)collector.add('fogpotential',1,p);return f.markup;}
  return '';
  return '';
 }
@@ -271,10 +295,12 @@ function draw(){
  // Always leave the independent local SVG basemap visible if a render fails.
  let out=geo?`<defs><clipPath id="nw-de-clip"><path d="${geo.outline}"/></clipPath></defs><path d="${geo.neighbors}" fill="${dark?'#263745':'#e3e9e6'}" stroke="${dark?'#627180':'#9aa6a5'}" stroke-width=".7" fill-rule="evenodd"/><path d="${geo.outline}" fill="${dark?'#2a4258':'#f8fafb'}"/>`:'';
  if(geo)out+='<g fill="'+(dark?'#9caebe':'#667773')+'" font-size="11" font-family="system-ui,sans-serif" text-anchor="middle" pointer-events="none">'+[['NL',5.3,52.4],['BE',4.8,50.8],['LU',6.03,49.66],['FR',5.2,48.4],['CH',8,47.12],['AT',12.6,47.2],['CZ',14.5,49.7],['PL',15.25,52.3],['DK',9.6,55.1]].map(([name,lon,lat])=>{const [x,y]=project(lon,lat).map(rounded);return '<g transform="translate('+x+' '+y+')"><text class="nw-zoom-stable">'+name+'</text></g>'}).join('')+'</g>';
- if(geo&&periods.length&&g&&ks.length)out+=modelArea(periods,g,ks,collector);
- if(geo&&currentRadarWindow()&&showRadar){const rows=radarRows();if(rows.length)out+=radarWarningArea(rows,collector,filter)}
- if(geo&&currentRadarWindow()&&(filter==='all'||filter==='frost'))out+=observedFrost(collector);
- if(geo&&fogWindow())out+=currentFogArea(collector);
+ const areas=[];
+ if(geo&&periods.length&&g&&ks.length)areas.push(modelArea(periods,g,ks,collector));
+ if(geo&&currentRadarWindow()&&showRadar){const rows=radarRows();if(rows.length)areas.push(radarWarningArea(rows,collector,filter))}
+ if(geo&&currentRadarWindow()&&(filter==='all'||filter==='frost'))areas.push(observedFrost(collector));
+ if(geo&&fogWindow())areas.push(currentFogArea(collector));
+ if(geo)out+=composeWarningAreas(areas.filter(Array.isArray));
  if(geo)out+=`<g fill="none" stroke-linejoin="round" pointer-events="none"><path class="nw-districts" d="${geo.districtPaths}" stroke="${dark?'#9eb2c7':'#475b70'}" stroke-opacity=".48" stroke-width=".45" vector-effect="non-scaling-stroke"/><path d="${geo.states}" stroke="${dark?'#a1b1c2':'#748392'}" stroke-opacity=".8" stroke-width=".9" vector-effect="non-scaling-stroke"/><path d="${geo.outline}" stroke="${dark?'#d3dce7':'#48586a'}" stroke-width="1.6" vector-effect="non-scaling-stroke"/></g><g class="nw-cities" fill="${dark?'#f3f8ff':'#253444'}" font-size="15" font-family="system-ui,sans-serif" stroke="${dark?'#213347':'#fff'}" stroke-width="2.5" paint-order="stroke">${cityMarkup(globalThis.WEATHER_BASEMAP?.places,viewport)}</g>`;
  out+=selectMarkers(collector).map(markerMarkup).join('');
  out+=storms(t).map(c=>stormMarkup(c,t)).join('');

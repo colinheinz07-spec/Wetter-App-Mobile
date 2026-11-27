@@ -141,3 +141,11 @@ assert.doesNotMatch(el('national-warning').innerHTML,/id="nw-list"/);
  console.log('PASS: warning map, zoom, tap-only detail, close, forecast markers, automatic storm removal and no official API');
 })().catch(e=>{console.error(e);process.exitCode=1});
 
+
+// Uniform colours and severity priority across live/model overlays.
+const cleanAreas=w.contourMarkup(Uint8Array.from([1,2,5,0]),{west:7,south:50,nx:2,ny:2,step:.02},true);
+assert.equal(cleanAreas.length,5);
+assert.match(cleanAreas[1],/#edc844/);assert.match(cleanAreas[2],/#f18b26/);
+assert.doesNotMatch(cleanAreas.join(''),/opacity/);
+assert.match(w.composeWarningAreas([['missing','A1','A2','',''],['','B1','','B3','']]),/missingA1B1A2B3/);
+assert.equal((w.gridContour(Uint8Array.from([0,1,1,0]),2,2,1).match(/M/g)||[]).length,2);
