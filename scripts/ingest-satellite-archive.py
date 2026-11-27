@@ -90,26 +90,45 @@ def radar_download(dest, stamp):
 
 
 def main(dest):
-    latest = latest_capture()
     now = int(datetime.now(timezone.utc).timestamp())
-    if not now - 3600 <= latest <= now or latest % STEP:
-        raise ValueError('No fresh aligned GeoColour capture')
     dest.mkdir(exist_ok=True, parents=True)
-    stamps = list(range(latest, latest - 25 * 3600 - 1, -STEP))
+    # Satellite and radar clocks are independent. A delayed satellite image
+    # must never prevent a new radar observation from entering the archive.
+    try:
+        latest = latest_capture()
+        if not now - 3600 <= latest <= now or latest % STEP:
+            raise ValueError('No fresh aligned GeoColour capture')
+        stamps = list(range(latest, latest - 25 * 3600 - 1, -STEP))
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(lambda t: download(dest, t), stamps))
+    except Exception as exc:
+        print('Satellite update delayed:', str(exc)[:160], flush=True)
+    radar_step = 300
+    latest_radar = (now // radar_step) * radar_step - radar_step
+    # Backfill recent missing five-minute frames gradually, keeping each job bounded.
+    radar_stamps = list(range(latest_radar, latest_radar - 25 * 3600 - 1, -radar_step))
+    missing = [t for t in radar_stamps if not (dest / f'{t}.json.gz').exists()]
     with ThreadPoolExecutor(max_workers=4) as pool:
-        frames = sorted(t for t in pool.map(lambda t: download(dest, t), stamps) if t is not None)
-    if not frames or frames[-1] < latest - 1800:
-        raise ValueError('No recent verified image')
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        radar = sorted(t for t in pool.map(lambda t: radar_download(dest, t), stamps) if t is not None)
-    for path in dest.glob('*.json.gz'):
-        if path.name.split('.')[0].isdigit() and int(path.name.split('.')[0]) not in radar:
-            path.unlink()
-    for path in dest.glob('*.jpg'):
-        if path.stem.isdigit() and int(path.stem) not in frames:
-            path.unlink()
+        list(pool.map(lambda t: radar_download(dest, t), missing[:24]))
+    cutoff = now - 25 * 3600
+    def retained(pattern, suffix, step):
+        stamps = []
+        for path in dest.glob(pattern):
+            name = path.name.removesuffix(suffix)
+            if not name.isdigit():
+                continue
+            stamp = int(name)
+            if stamp < cutoff or stamp > now or stamp % step:
+                path.unlink()
+            else:
+                stamps.append(stamp)
+        return sorted(stamps)
+    frames = retained('*.jpg', '.jpg', STEP)
+    radar = retained('*.json.gz', '.json.gz', radar_step)
+    if not frames and not radar:
+        raise ValueError('Neither radar nor satellite archive has valid data')
     (dest / 'index.json').write_text(json.dumps(dict(schema=1, bounds=BOUNDS, frames=frames, radar=radar)))
-    print(len(frames), 'verified images', flush=True)
+    print(len(frames), 'verified images;', len(radar), 'verified radar scans', flush=True)
 
 
 if __name__ == '__main__':
