@@ -2092,7 +2092,7 @@ async function fetchRadarPoints(){
  if(radarPointRequest)return radarPointRequest;
  if(Date.now()-radarPointCheck<60000)return;radarPointCheck=Date.now();
  if(!radarPointData)readRadarCache('rate',decodeRadarPoints,acceptRadarPoints);
- if(!ownRadarFresh(radarPointData,12)&&!ownRadarFresh(operaRadarData,20))setTimeout(()=>{if(!ownRadarFresh(radarPointData,12)&&!ownRadarFresh(operaRadarData,20))fetchBrightRadar()},750);
+ if(!ownRadarFresh(radarPointData,12))setTimeout(()=>{if(!ownRadarFresh(radarPointData,12))fetchBrightRadar()},750);
  radarPointRequest=fetchRadarSnapshots('ry','radar-observation-data','radar-points.json.gz',decodeRadarPoints,acceptRadarPoints,'rate');try{await radarPointRequest}finally{radarPointRequest=null}
 }
 // Quantitative RV forecasts: each value is a separate five-minute amount,
@@ -2140,9 +2140,10 @@ function fetchNowcastMapFrame(date){
  if(time<=radarBaseTime()&&liveLayer!=='satellite'){fetchBrightRadarFrame(date);return;}
  if(nowcastFramePending.has(time))return nowcastFramePending.get(time);
  if(nowcastFramePending.size>=3)return;
+ const forecastOnly=liveLayer==='satellite'&&liveMinute>0||time>Date.now();
  const task=workerNowcast('frame',{time}).then(d=>{
   if(d){nowcastMapFrames.set(time,d);while(nowcastMapFrames.size>12)nowcastMapFrames.delete(nowcastMapFrames.keys().next().value);refreshOwnRadarViews()}
-  else fetchBrightRadarFrame(date);
+  else fetchBrightRadarFrame(date,forecastOnly);
  }).finally(()=>{nowcastFramePending.delete(time);scheduleMap()});nowcastFramePending.set(time,task);return task;
 }
 function parameterAt(id,point,time,preferred,interval=0){
@@ -3389,19 +3390,19 @@ function timelineRadar(time){
  if(liveMinute<0){
   const archived=satelliteFrames.file('radar',Math.floor(time/300000)*300000);if(archived)return ownRadarWithModels(archived);
   const exact=ownRadarFrame(new Date(time));if(exact&&!exact.forecast)return exact;
-  fetchBrightRadarFrame(new Date(time));const prior=satelliteFrames.atOrBefore('radar',time,10*60000);return prior?ownRadarWithModels(prior.value):null;
+  fetchBrightRadarFrame(new Date(time),false);const prior=satelliteFrames.atOrBefore('radar',time,10*60000);return prior?ownRadarWithModels(prior.value):null;
  }
  fetchRadarNowcast();
- const f=ownRadarFrame(new Date(time)),bright=brightRadarFrames.get(time);
+ const f=ownRadarFrame(new Date(time)),bright=brightForecastFrames.get(time);
  if(f?.forecast&&f.time===time)return f;
  if(bright?.forecast)return ownRadarWithModels(bright);
  // Positive offsets must use forecasts, never a measurement with the same timestamp.
- if(!nowcastFramePending.has(time)&&!brightRadarPending.has(time)&&Date.now()-(forecastAttempts.get(time)||0)>10000){
+ if(!nowcastFramePending.has(time)&&!brightRadarPending.has(time+'/forecast')&&Date.now()-(forecastAttempts.get(time)||0)>10000){
   forecastAttempts.set(time,Date.now());
   if(forecastAttempts.size>40)forecastAttempts.delete(forecastAttempts.keys().next().value);
   fetchNowcastMapFrame(new Date(time));
   // Independent single-frame endpoint avoids waiting for the full RV packet.
-  setTimeout(()=>{if(liveLayer==='satellite'&&liveMinute>0&&satelliteTime()===time&&!nowcastMapFrames.has(time))fetchBrightRadarFrame(new Date(time));},2000);
+  setTimeout(()=>{if(liveLayer==='satellite'&&liveMinute>0&&satelliteTime()===time&&!nowcastMapFrames.has(time))fetchBrightRadarFrame(new Date(time),true);},2000);
  }
  return null;
 }
@@ -3537,7 +3538,7 @@ const radarCoverage=[2,45,18,57];
 // Bright Sky uses an ellipsoidal stereographic grid, not lat/lon pixels.
 const brightRadarGrid={west:2,south:45,step:.01,nx:1601,ny:1201,scale:.01,missing:-32768};
 let brightRadarMapping=null,brightRadarCheck=0,brightRadarRequest=null;
-const brightRadarFrames=new Map(),brightRadarPending=new Map(),brightRadarChecks=new Map();
+const brightRadarFrames=new Map(),brightForecastFrames=new Map(),brightRadarPending=new Map(),brightRadarChecks=new Map();
 function brightRadarIndex(lon,lat){
  const e=Math.sqrt(1-(6356752.3142451802/6378137)**2),r=Math.PI/180;
  const t=p=>Math.tan(Math.PI/4-p/2)/((1-e*Math.sin(p))/(1+e*Math.sin(p)))**(e/2);
@@ -3581,10 +3582,16 @@ function fetchBrightRadar(){
   const amount=await brightRadarUnpack(row);acceptRadarPoints({schema:1,product:'RV-observation',source:'DWD RV / Bright Sky',time:new Date(row.time).toISOString(),grid:brightRadarGrid,intervalMinutes:5,amount});
  }catch{} })().finally(()=>brightRadarRequest=null);return brightRadarRequest;
 }
-function fetchBrightRadarFrame(date){
- const t=date.getTime();if(!Number.isFinite(t)||t<Date.now()-120*60000||t>Date.now()+120*60000||brightRadarPending.has(t)||Date.now()-(brightRadarChecks.get(t)||0)<60000)return;
- brightRadarChecks.set(t,Date.now());while(brightRadarChecks.size>45)brightRadarChecks.delete(brightRadarChecks.keys().next().value);
- const task=(async()=>{try{const row=(await brightRadarFetch(t,t)).find(r=>r.time===t&&(t>Date.now()?r.forecast&&Date.now()-r.base<=25*60000:!r.forecast));if(!row)return;const amount=await brightRadarUnpack(row);brightRadarFrames.set(t,{time:t,grid:brightRadarGrid,amount,source:'RV / Bright Sky'+(row.forecast?' · Prognose':' · Messung'),forecast:row.forecast,key:'bright/'+t+'/'+row.base});while(brightRadarFrames.size>10)brightRadarFrames.delete(brightRadarFrames.keys().next().value);refreshOwnRadarViews()}catch{}})().finally(()=>{brightRadarPending.delete(t);scheduleMap()});brightRadarPending.set(t,task);
+function fetchBrightRadarFrame(date,forecastOnly=date.getTime()>Date.now()){
+ const t=date.getTime(),key=t+'/'+(forecastOnly?'forecast':'observation'),cache=forecastOnly?brightForecastFrames:brightRadarFrames;
+ if(!Number.isFinite(t)||t<Date.now()-120*60000||t>Date.now()+120*60000||cache.has(t)||brightRadarPending.has(key)||Date.now()-(brightRadarChecks.get(key)||0)<30000)return;
+ brightRadarChecks.set(key,Date.now());while(brightRadarChecks.size>60)brightRadarChecks.delete(brightRadarChecks.keys().next().value);
+ const task=(async()=>{try{
+  const rows=(await brightRadarFetch(t,t)).filter(r=>r.time===t&&r.forecast===forecastOnly&&(!forecastOnly||Date.now()-r.base<=30*60000)).sort((a,b)=>b.base-a.base);
+  const row=rows[0];if(!row)return;const amount=await brightRadarUnpack(row);
+  cache.set(t,{time:t,grid:brightRadarGrid,amount,source:'RV / Bright Sky'+(row.forecast?' · Prognose':' · Messung'),forecast:row.forecast,key:'bright/'+t+'/'+row.base});
+  while(cache.size>10)cache.delete(cache.keys().next().value);refreshOwnRadarViews();
+ }catch{}})().finally(()=>{brightRadarPending.delete(key);scheduleMap()});brightRadarPending.set(key,task);
 }
 
 
@@ -3726,11 +3733,11 @@ function pointRadarAt(point,now=Date.now()){
 function ownRadarObservation(){
  const sources=radarObservationSources(),latest=Math.max(...sources.map(s=>s.time));
  const ph=typeof radarPhaseData!=='undefined'&&ownRadarFresh(radarPhaseData)?radarPhaseData:null;
- const base=sources.find(s=>s.time===latest),pt=Date.parse(ph?.time);
+ const base=sources.filter(s=>latest-s.time<=RADAR_SOURCE_TOLERANCE_MS).sort((a,b)=>a.priority-b.priority||b.time-a.time)[0],pt=Date.parse(ph?.time);
  if(!base)return null; // A phase classification alone is not a measured intensity raster.
- const rateSources=sources.filter(s=>ownRadarMatch(base.grid,s.grid));
+ const rateSources=sources.filter(s=>Math.abs(s.time-base.time)<=RADAR_SOURCE_TOLERANCE_MS&&ownRadarMatch(base.grid,s.grid));
  const phase=ph&&rateSources.some(s=>Math.abs(s.time-pt)<=5*60000)&&ownRadarMatch(base.grid,ph.grid)?ph:null;
- return {time:latest,grid:base.grid,amount:base.amount,rateFactor:base.rateFactor,rateSources,classes:phase?.classes,phaseTime:phase?pt:null,source:[...rateSources].sort((a,b)=>a.priority-b.priority).map(s=>s.source).join(' + ')+(phase?' · Phase: DWD HymecNG':''),key:'multi-priority/'+rateSources.map(s=>s.source+'/'+s.time).join('|')+'/'+(phase?pt:'model')};
+ return {time:base.time,grid:base.grid,amount:base.amount,rateFactor:base.rateFactor,rateSources,classes:phase?.classes,phaseTime:phase?pt:null,source:[...rateSources].sort((a,b)=>a.priority-b.priority).map(s=>s.source).join(' + ')+(phase?' · Phase: DWD HymecNG':''),key:'multi-priority/'+rateSources.map(s=>s.source+'/'+s.time).join('|')+'/'+(phase?pt:'model')};
 }
 function ownRadarFrame(date,latest=false){
  const obs=ownRadarObservation();if(obs&&(latest||obs.time===date.getTime())&&!(liveLayer==='satellite'&&liveMinute>0&&!latest))return ownRadarWithModels(obs);
@@ -3741,7 +3748,9 @@ function ownRadarFrame(date,latest=false){
   if(lead>=5&&lead<=120&&typeof amount==='string')return ownRadarWithModels({time:t,grid:rv.grid,amount,source:'RV · Prognose',forecast:true,key:'fc/'+base+'/'+lead});
  }
  // Recent observed frames are kept in memory; never reuse a prediction as observation.
+ if(liveLayer==='satellite'&&liveMinute>0&&brightForecastFrames.has(t))return ownRadarWithModels(brightForecastFrames.get(t));
  if(brightRadarFrames.has(t))return ownRadarWithModels(brightRadarFrames.get(t));
+ if(t>Date.now()&&brightForecastFrames.has(t))return ownRadarWithModels(brightForecastFrames.get(t));
  for(const entry of ownRadarCache.values())if(!entry.frame.forecast&&entry.frame.time===t)return entry.frame;
  return null;
 }
