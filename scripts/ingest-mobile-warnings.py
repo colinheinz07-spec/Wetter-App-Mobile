@@ -20,6 +20,102 @@ TYPES=('frost','wind','heat','fog','fogpotential','snow','freezing','ice','rain'
 POTENTIAL={'ice','fogpotential','stormwind','stormrain','hail','rotation'}
 N=GRID['nx']*GRID['ny']
 
+# September reference matrices + 3-hour snow reference.
+SNOW_LOW={3:[1,3,8,15,25],6:[2,5,15,25,40],12:[3,8,20,35,55],24:[5,10,25,45,70],48:[8,15,35,60,90]}
+SNOW_HIGH={3:[2,5,12,20,35],6:[3,8,20,35,55],12:[5,12,30,50,75],24:[8,18,40,65,95],48:[12,25,55,85,120]}
+SHORT_RAIN={1:[15,25,40,60,90],3:[20,35,55,80,120],6:[25,40,65,95,140]}
+LONG_RAIN={12:[20,30,45,65,90],24:[25,40,60,90,130],48:[35,50,80,120,180],72:[45,65,100,150,220]}
+WIND_LOW=[50,70,100,120,150]
+WIND_HIGH=[60,80,105,125,155]
+
+def reference_level(amount,hours,matrix):
+    keys=sorted(matrix)
+    valid=np.isfinite(amount)&np.isfinite(hours)&(hours>0)
+    result=np.zeros(np.shape(amount),dtype=np.uint8)
+    for i in range(5):
+        threshold=np.interp(hours,keys,[matrix[k][i] for k in keys])
+        result[valid & ((amount>threshold) if i==4 else (amount>=threshold))]=i+1
+    return np.where(valid,result,255).astype(np.uint8)
+
+def snow_reference(amount,hours,orog):
+    return np.where(orog>=800,reference_level(amount,hours,SNOW_HIGH),reference_level(amount,hours,SNOW_LOW)).astype(np.uint8)
+
+def event_totals(blocks,ends):
+    # Per cell, contiguous wet periods only; missing and dry data terminate events.
+    ahead=[];elapsed=[];total=np.zeros(N,np.float32);hours=np.zeros(N,np.float32)
+    for i,(a,d,s,z) in enumerate(blocks):
+        wet=np.isfinite(a)&(a>=.1)&(d>0)
+        join=(blocks[i-1][3]==3)&(s==0) if i and ends[i]-ends[i-1]==10800 else False
+        total=np.where(wet,np.where(join,total,0)+a,0);hours=np.where(wet,np.where(join,hours,0)+d,0)
+        ahead.append(total);elapsed.append(hours)
+    out=[None]*len(blocks);total=np.zeros(N,np.float32);hours=np.zeros(N,np.float32)
+    for i in range(len(blocks)-1,-1,-1):
+        a,d,s,z=blocks[i];wet=np.isfinite(a)&(a>=.1)&(d>0)
+        join=(z==3)&(blocks[i+1][2]==0) if i+1<len(blocks) and ends[i+1]-ends[i]==10800 else False
+        total=np.where(wet,np.where(join,total,0)+a,0);hours=np.where(wet,np.where(join,hours,0)+d,0)
+        out[i]=(np.where(wet,ahead[i]+total-a,np.nan),np.where(wet,elapsed[i]+hours-d,np.nan))
+    return out
+
+def hourly_snow(fields,end):
+    water=delta(fields,end,'snowWaterTotal',3600)
+    water=np.fmax(water,delta(fields,end,'snowGspTotal',3600)+delta(fields,end,'snowConTotal',3600))
+    temp=field_value(fields,end,'temp2')
+    return np.where(water==0,0,water*np.clip(7-temp*1.2,4,16)/10)
+
+def block_snow(fields,end):
+    hourly=np.stack([hourly_snow(fields,end-s) for s in (7200,3600,0)])
+    complete=np.isfinite(hourly).all(axis=0);wet=hourly>=.1
+    precise=complete&~(wet[0]&~wet[1]&wet[2])
+    return (np.where(complete,hourly.sum(axis=0),fresh_snow_cm(fields,end)),
+            np.where(precise,wet.sum(axis=0),3).astype(np.float32),
+            np.where(precise&wet.any(axis=0),wet.argmax(axis=0),0).astype(np.uint8),
+            np.where(precise&wet.any(axis=0),3-wet[::-1].argmax(axis=0),3).astype(np.uint8))
+
+def prepare_events(model,ends):
+    f=model['fields'];snow=[block_snow(f,e) for e in ends]
+    rain=[liquid_amount(f,e) for e in ends]
+    zero=np.zeros(N,np.uint8);three=np.full(N,3,np.uint8)
+    snow_events=event_totals(snow,ends);rain_events=event_totals([(a,three,zero,three) for a in rain],ends)
+    result=[]
+    for i,e in enumerate(ends):
+        a,d,start,finish=snow[i];sa,sh=snow_events[i];ra,rh=rain_events[i]
+        orog=field_value(f,e,'orog')
+        base=snow_reference(a,d,orog);total=snow_reference(sa,sh,orog)
+        snow_level=np.maximum(np.where(base==255,0,base),np.where(total==255,0,total))
+        short=reference_level(rain[i],3,SHORT_RAIN)
+        for j in (i-1,i):
+            if j>=0 and j+1<len(ends) and ends[j+1]-ends[j]==10800:
+                b,c=snow[j],snow[j+1]
+                peak=snow_reference(b[0]+c[0],b[1]+c[1],orog)
+                snow_level=np.maximum(snow_level,np.where((b[0]>=.1)&(c[0]>=.1)&(b[3]==3)&(c[2]==0)&(peak<255),peak,0))
+                six=reference_level(rain[j]+rain[j+1],6,SHORT_RAIN)
+                short=np.where((rain[i]>=.1)&(rain[j]>=.1)&(rain[j+1]>=.1)&(six<255),np.maximum(np.where(short==255,0,short),six),short)
+        long=reference_level(ra,rh,LONG_RAIN)
+        long=np.where(np.isfinite(ra)&(rh>=12),long,np.where(np.isfinite(rain[i]),0,255)).astype(np.uint8)
+        result.append(dict(snow=np.where(np.isfinite(a)&(a>=.1),np.maximum(1,snow_level),np.where(np.isfinite(a),0,255)).astype(np.uint8),snowAmount=a,snowStart=start,snowEnd=finish,durationrain=long,rain=short))
+    return result
+
+def load_hail(now,ends):
+    root=ROOT+'icon-d2-ruc/'
+    meta=read(root+'index.json');run=timestamp(meta['run']);g=meta['grid']
+    if meta.get('product')!='hail' or meta.get('model')!='ICON-D2-RUC' or not 0<=now-run<=21600:raise ValueError('stale hail run')
+    idx,valid=grid_indices(g)
+    hours={int((e-s-run)/3600) for e in ends for s in (0,3600,7200) if (e-s-run)%3600==0 and int((e-s-run)/3600) in meta['hours']}
+    def one(h):
+        try:
+            p=read(root+f'{h}-hail.json.gz?v='+meta['generated'])
+            if (p['run'],p['generated'],p['hour'],p['field'])!=(meta['run'],meta['generated'],h,'hail'):raise ValueError('hail run changed')
+            raw=np.frombuffer(base64.b64decode(p['values'],validate=True),dtype='<i2')
+            if len(raw)!=g['nx']*g['ny']:raise ValueError('hail grid')
+            a=raw[idx].astype(np.float32);a[(a==g['missing'])|~valid]=np.nan
+            return run+h*3600,a*meta['scales']['hail']
+        except Exception as e:print('hail',h,str(e)[:100]);return run+h*3600,np.full(N,np.nan,np.float32)
+    with ThreadPoolExecutor(max_workers=5) as pool:fields=dict(pool.map(one,sorted(hours)))
+    return {e:np.fmax.reduce([fields.get(e-s,np.full(N,np.nan,np.float32)) for s in (0,3600,7200)]) for e in ends}
+
+def hail_level(size):
+    return np.where(np.isfinite(size),np.where(size>8,5,np.where(size>=5,4,np.where(size>=3,3,np.where(size>=2,2,np.where(size>0,1,0))))),255).astype(np.uint8)
+
 def timestamp(s):return int(dt.datetime.fromisoformat(s.replace('Z','+00:00')).timestamp())
 def read(url):
     req=urllib.request.Request(url,headers={'User-Agent':'WetterApp/1.0'})
@@ -50,7 +146,7 @@ def load_model(name,branch,max_age,now,ends):
             return (run+h*3600,k),arr
         except Exception as e:
             print(name,h,k,str(e)[:100],flush=True);return (run+h*3600,k),None
-    jobs=[(h,k) for h in hours for k in FIELDS if k in m['frames'][str(h)] and (run+h*3600 in ends or run+h*3600 in targets and k in ('rainTotal','convTotal','temp2','ww','ptype','snowWaterTotal','snowGspTotal','snowConTotal') or run+h*3600 in hourly_rain and k in ('rainTotal','temp2'))]
+    jobs=[(h,k) for h in hours for k in FIELDS if k in m['frames'][str(h)] and (run+h*3600 in ends or run+h*3600 in targets and k in ('rainTotal','convTotal','temp2','ww','ptype','snowWaterTotal','snowGspTotal','snowConTotal') or run+h*3600 in hourly_rain and k in ('rainTotal','temp2','ww','ptype','snowWaterTotal','snowGspTotal','snowConTotal'))]
     with ThreadPoolExecutor(max_workers=10) as pool:fields={k:v for k,v in pool.map(load,jobs) if v is not None}
     if not fields:raise ValueError('no valid fields')
     return dict(model=name,run=run,fields=fields,step=g['step'])
@@ -58,7 +154,7 @@ def load_model(name,branch,max_age,now,ends):
 def levels(v,limits):
     result=np.zeros(N,dtype=np.uint8)
     result[~np.isfinite(v)]=255
-    for i,x in enumerate(limits,1):result[np.isfinite(v)&(v>=x)]=i
+    for i,x in enumerate(limits,1):result[np.isfinite(v)&((v>x) if i==5 else (v>=x))]=i
     return result
 
 def categorical(valid,signal,level=1):
@@ -154,21 +250,23 @@ def analyze(fields,end):
     conv_known=np.isfinite(ww)|(np.isfinite(capes)&np.isfinite(cin)&np.isfinite(precip))
     storm=categorical(conv_known,conv);storm[conv&((capes>=1000)&(shear>=15)|(rain>=20))]=2
     # Height threshold is used only when model orography is known.
-    wind=levels(gust,[50,70,100,120]);high=levels(gust,[60,80,105,125]);wind[orog>=800]=high[orog>=800]
+    wind=levels(gust,WIND_LOW);high=levels(gust,WIND_HIGH);wind[orog>=800]=high[orog>=800]
     heat=np.where(np.isfinite(t),np.where(t>=39,4,np.where(t>=37,3,0)),255).astype(np.uint8)
     # Separate ingredient-based severe-weather outlooks, never confirmation,
     # hail size or tornado probability. Lack of an ingredient stays missing.
     ship=val('ship');stp=val('stp')
-    conv_gust=np.where(conv_known&np.isfinite(gust),np.where(conv&(gust>=70),wind,0),255).astype(np.uint8)
+    conv_gust=np.where(conv_known&np.isfinite(gust),np.where(conv,levels(gust,WIND_LOW),0),255).astype(np.uint8)
     hour_peak=np.where(liquid,peak_hour_rain(fields,end),np.nan)
-    conv_rain_level=np.maximum(np.where(np.isfinite(rain),levels(rain,[20,35,55,80]),0),np.where(np.isfinite(hour_peak),levels(hour_peak,[15,25,40,60]),0))
+    conv_rain_level=np.maximum(np.where(np.isfinite(rain),levels(rain,SHORT_RAIN[3]),0),np.where(np.isfinite(hour_peak),levels(hour_peak,SHORT_RAIN[1]),0))
     conv_rain=np.where(conv_known&(np.isfinite(rain)|np.isfinite(hour_peak)),np.where(conv,conv_rain_level,0),255).astype(np.uint8)
     causes=ice_causes(fields,end)
     frost=frost_level(minimum_temp(fields,end))
     snow_cm=fresh_snow_cm(fields,end)
     snow_signal=np.isin(ww,[70,71,72,73,74,75,77,85,86])|(np.isin(pt,[5,6])&wet)|(snow_cm>=.1)
     snow_levels=categorical(phase_known|np.isfinite(snow_cm),snow_signal)
-    for level,threshold in enumerate((5,10,20),2):snow_levels[snow_signal&(snow_cm>=threshold)]=level
+    snow_ref=snow_reference(snow_cm,3,orog)
+    snow_levels=np.where(snow_signal&(snow_ref<255),np.maximum(snow_levels,snow_ref),snow_levels).astype(np.uint8)
+    storm=np.where(conv,np.maximum(1,np.maximum(np.where(conv_gust<255,conv_gust,0),np.where(conv_rain<255,conv_rain,0))),storm).astype(np.uint8)
     dew=val('dew');meanwind=val('wind');spread=t-dew
     fog_known=np.isfinite(t)&np.isfinite(dew)&np.isfinite(meanwind)
     fog_signal=(spread>=-.5)&(spread<=1)&(meanwind>=0)&(meanwind<=12)&(~np.isfinite(rh)|(rh>=94))&~(np.isfinite(v)&(v>=0)&(v<=.25))
@@ -177,7 +275,7 @@ def analyze(fields,end):
                 fogpotential=categorical(fog_known,fog_signal),
                 snow=snow_levels,freezing=categorical(phase_known,freeze),
                 ice=categorical((causes>0)|(np.isfinite(ground)&(np.isfinite(precip)|np.isfinite(rh))),causes>0),
-                rain=np.where(np.isfinite(rain),np.maximum(levels(rain,[20,35,55,80]),np.where(np.isfinite(hour_peak),levels(hour_peak,[15,25,40,60]),0)),255).astype(np.uint8),durationrain=levels(sustained,[25,40,60,90]),storm=storm,stormwind=conv_gust,stormrain=conv_rain,
+                rain=np.where(np.isfinite(rain),np.maximum(levels(rain,SHORT_RAIN[3]),np.where(np.isfinite(hour_peak),levels(hour_peak,SHORT_RAIN[1]),0)),255).astype(np.uint8),durationrain=levels(sustained,LONG_RAIN[12]),storm=storm,stormwind=conv_gust,stormrain=conv_rain,
                 hail=categorical(conv_known&np.isfinite(ship),conv&(ship>=1)),
                 rotation=categorical(conv_known&np.isfinite(stp),conv&(stp>=1)))
 
@@ -200,7 +298,7 @@ def family_arrays(models,arrays):
         families[family]=np.where(families[family]==255,a,families[family]) if family in families else a.copy()
     return list(families.values())
 
-def build(now,models,ends,watch=False):
+def build(now,models,ends,watch=False,hail=None,prepared=None):
     periods=[]
     # Keep long-range outlooks smaller than the high-resolution 24h product.
     selection=(slice(None,None,2),slice(None,None,2)) if watch else (slice(None),slice(None))
@@ -208,8 +306,23 @@ def build(now,models,ends,watch=False):
         return base64.b64encode(arr.reshape(GRID['ny'],GRID['nx'])[selection].tobytes()).decode()
     continuation={k:np.zeros(N,dtype=bool) for k in TYPES}
     cutoff=now+86400
-    for end in ends:
+    prepared=prepared if prepared is not None else [prepare_events(m,ends) for m in models]
+    terrain=np.full(N,np.nan,np.float32)
+    for m in sorted(models,key=lambda m:m['step']):
+        for e in ends:
+            terrain=np.where(np.isfinite(terrain),terrain,field_value(m['fields'],e,'orog'))
+            if np.isfinite(terrain).all():break
+    terrain_packed=pack(np.where(np.isfinite(terrain),np.clip(np.rint(terrain),-32767,32767),-32768).astype('<i2'))
+    for ei,end in enumerate(ends):
         rows=[analyze(m['fields'],end) for m in models]
+        for mi,row in enumerate(rows):
+            ev=prepared[mi][ei]
+            row['snow']=np.where((ev['snow']>0)&(ev['snow']<255),ev['snow'],row['snow'])
+            row['durationrain']=ev['durationrain']
+            row['rain']=np.where((ev['rain']<255)&(row['rain']<255),np.maximum(ev['rain'],row['rain']),row['rain'])
+            conv=(row['storm']>0)&(row['storm']<255)
+            row['stormrain']=np.where(conv&(row['rain']<255),np.maximum(np.where(row['stormrain']<255,row['stormrain'],0),row['rain']),row['stormrain'])
+            row['storm']=np.where(conv,np.maximum(row['storm'],np.where(row['stormrain']<255,row['stormrain'],0)),row['storm'])
         codes={k:combine(family_arrays(models,[r[k] for r in rows]),k) for k in TYPES}
         # A localized frost indication in the high-resolution regional model
         # can justify a precautionary forecast even without global agreement.
@@ -217,27 +330,35 @@ def build(now,models,ends,watch=False):
         if not watch:
             regional=next((r['frost'] for m,r in zip(models,rows) if m['model']=='ICON-D2'),None)
             if regional is not None:
-                local=(regional>0)&(regional<255)&(codes['frost']>=1)&(codes['frost']<=4)
+                local=(regional>0)&(regional<255)&(codes['frost']>=1)&(codes['frost']<=5)
                 codes['frost'][local]=30+regional[local]
         # CAPE/CIN plus precipitation are ingredients, not proof of a storm.
         # A forecast warning requires independent explicit thunder/convection
         # signals; otherwise keep the event visibly in the risk layer.
         explicit=[np.where(row['storm']==255,255,np.where(direct_storm(m['fields'],end),row['storm'],0)).astype(np.uint8) for m,row in zip(models,rows)]
-        confirmed=combine(family_arrays(models,explicit),'storm');active=(confirmed>=11)&(confirmed<=14)
-        uncertain=(codes['storm']>=11)&(codes['storm']<=14)&~active
+        confirmed=combine(family_arrays(models,explicit),'storm');active=(confirmed>=11)&(confirmed<=15)
+        uncertain=(codes['storm']>=11)&(codes['storm']<=15)&~active
         codes['storm'][uncertain]+=10
         codes['storm'][active]=confirmed[active]
         # Agreement on wet/snow/ice precipitation justifies a forecast warning;
         # humidity alone remains a risk (road surface state is not measured).
         direct_ice=sum(a==1 for a in family_arrays(models,[np.where(row['ice']==255,255,(ice_causes(m['fields'],end)&7)>0).astype(np.uint8) for m,row in zip(models,rows)]))
-        codes['ice'][(codes['ice']>=21)&(codes['ice']<=24)&(direct_ice>=2)]-=10
+        codes['ice'][(codes['ice']>=21)&(codes['ice']<=25)&(direct_ice>=2)]-=10
+        hail_size=(hail or {}).get(end)
+        if hail_size is not None:
+            hl=hail_level(hail_size);hit=(hl>0)&(hl<255)
+            codes['hail'][hit]=20+hl[hit]
+            storm=codes['storm'];base=storm%10
+            supported=hit&(storm>0)&(storm<255)&(hl>base)
+            active=supported&(storm>=11)&(storm<=15)
+            storm[supported]=20+hl[supported];storm[active]=30+hl[active]
         # Do not create another Watch for a continuous, already warned event.
         if watch:
             if end-10800<cutoff:
-                for k,c in codes.items():continuation[k]=(c>=11)&(c<=14)
+                for k,c in codes.items():continuation[k]=(c>=11)&(c<=15)
                 continue
             for k,c in codes.items():
-                continuation[k]&=(c>=11)&(c<=14)
+                continuation[k]&=(c>=11)&(c<=15)
                 c[continuation[k]]=0
         elif end-10800>=cutoff:break
         layers={k:pack(c) for k,c in codes.items()}
@@ -245,11 +366,17 @@ def build(now,models,ends,watch=False):
         # the hazard, not invented ranges derived from warning thresholds.
         metrics={}
         priority=sorted(zip(models,rows),key=lambda mr:mr[0]['step'])
+        prepared_by_model={id(m):prepared[i][ei] for i,m in enumerate(models)}
+        snow_start=np.full(N,0,np.uint8);snow_end=np.full(N,3,np.uint8);timing_known=np.zeros(N,bool)
+        for model,row in priority:
+            ev=prepared_by_model[id(model)];match=(row['snow']==codes['snow']%10)&(row['snow']>0)&(row['snow']<255)&~timing_known
+            snow_start[match]=ev['snowStart'][match];snow_end[match]=ev['snowEnd'][match];timing_known|=match
+        if hail_size is not None:metrics['hail']=pack(np.where(np.isfinite(hail_size)&(hail_size>=0)&(hail_size<3276),np.rint(hail_size*10),-32768).astype('<i2'))
         for kind,field in {'frost':'temp2','heat':'temp2','wind':'gust','fog':'visibility','snow':'snowCm','rain':'rainTotal','freezing':'rainTotal','durationrain':'rainTotal','stormrain':'rainTotal','stormwind':'gust','stormhour':'hourRain','iceCause':'iceCause'}.items():
             chosen=np.full(N,np.nan,dtype=np.float32)
             for model,row in priority:
                 f=model['fields'];hazard={'stormhour':'stormrain','iceCause':'ice'}.get(kind,kind)
-                if field=='snowCm':values=fresh_snow_cm(f,end)
+                if field=='snowCm':values=prepared_by_model[id(model)]['snowAmount']
                 elif field=='rainTotal':values=delta(f,end,'rainTotal')
                 elif field=='hourRain':values=peak_hour_rain(f,end)
                 elif field=='iceCause':values=ice_causes(f,end).astype(np.float32)
@@ -267,7 +394,7 @@ def build(now,models,ends,watch=False):
         # This avoids a single rounded "0 cm" despite a snow signal.
         snow_members=[]
         for model,row in priority:
-            snow_cm=fresh_snow_cm(model['fields'],end)
+            snow_cm=prepared_by_model[id(model)]['snowAmount']
             qualified=(row['snow']>0)&(row['snow']<255)&np.isfinite(snow_cm)&(snow_cm>=0)
             snow_members.append(np.where(qualified,snow_cm,np.nan))
         snow_stack=np.stack(snow_members) if snow_members else np.empty((0,N))
@@ -278,9 +405,9 @@ def build(now,models,ends,watch=False):
         for key,values in [('snowMin',snow_lower),('snowMax',snow_upper)]:
             packed=np.where(np.isfinite(values)&(values>=0)&(values<3276),np.rint(values*10),-32768).astype('<i2')
             metrics[key]=pack(packed)
-        periods.append(dict(start=end-10800,end=end,layers=layers,metrics=metrics,metricVersion=2,frostThresholdVersion=2))
+        periods.append(dict(start=end-10800,end=end,layers=layers,metrics=metrics,metricVersion=2,frostThresholdVersion=2,warningVersion=3,timing={'snowStart':pack(snow_start),'snowEnd':pack(snow_end)}))
     grid=dict(GRID,step=.04,nx=241,ny=206) if watch else GRID
-    return dict(schema=1,generated=now,grid=grid,models=[{k:m[k] for k in ('model','run','step')} for m in models],periods=periods)
+    return dict(schema=1,generated=now,grid=grid,terrain=terrain_packed,models=[{k:m[k] for k in ('model','run','step')} for m in models],periods=periods)
 
 def main():
     now=int(dt.datetime.now(dt.timezone.utc).timestamp());first=(now//10800+1)*10800;ends=list(range(first,now+96*3600+10800,10800))
@@ -290,9 +417,12 @@ def main():
     with ThreadPoolExecutor(max_workers=3) as pool:models=[m for m in pool.map(get_model,MODELS) if m]
     if not models:raise RuntimeError('No usable model runs')
     import sys
-    data=build(now,models,ends);path=Path(sys.argv[1] if len(sys.argv)>1 else 'data/national-risks.json.gz');path.parent.mkdir(parents=True,exist_ok=True)
+    try:hail=load_hail(now,ends)
+    except Exception as e:print('Hail product unavailable',str(e),flush=True);hail={}
+    prepared=[prepare_events(m,ends) for m in models]
+    data=build(now,models,ends,hail=hail,prepared=prepared);path=Path(sys.argv[1] if len(sys.argv)>1 else 'data/national-risks.json.gz');path.parent.mkdir(parents=True,exist_ok=True)
     with gzip.open(path,'wt',encoding='utf8') as f:json.dump(data,f,separators=(',',':'))
-    with gzip.open(path.with_name('national-watches.json.gz'),'wt',encoding='utf8') as f:json.dump(build(now,models,ends,watch=True),f,separators=(',',':'))
+    with gzip.open(path.with_name('national-watches.json.gz'),'wt',encoding='utf8') as f:json.dump(build(now,models,ends,watch=True,hail=hail,prepared=prepared),f,separators=(',',':'))
     print('Regional forecast',[(m['model'],len(m['fields'])) for m in models],len(ends),'windows',path.stat().st_size,flush=True)
 
 if __name__=='__main__':main()

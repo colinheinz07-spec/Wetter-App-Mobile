@@ -13,11 +13,11 @@ end=10800
 f=field(end,temp2=-6,gust=103,orog=100,ww=61,tground=0,rh2=96,rainTotal=21,mlcape=1500,mlcin=-25,s06=20);f[(0,'rainTotal')]=fill(0)
 x=r.analyze(f,end)
 assert x['frost'][0]==1 and x['wind'][0]==3 and x['rain'][0]==1 and x['ice'][0]==1
-assert x['storm'][0]==2
+assert x['storm'][0]==3
 assert r.analyze({},end)['frost'][0]==255
 assert r.combine([x['frost'],fill(0).astype('uint8')],'frost')[0]==1
 assert r.combine([x['frost'],fill(1).astype('uint8')],'frost')[0]==11
-assert r.combine([x['storm'],x['storm']],'storm')[0]==12
+assert r.combine([x['storm'],x['storm']],'storm')[0]==13
 assert x['stormwind'][0]==3 and x['stormrain'][0]==1 and x['hail'][0]==255
 assert r.combine([x['stormwind'],x['stormwind']],'stormwind')[0]==23
 assert r.combine([fill(255).astype('uint8')],'wind')[0]==255
@@ -42,17 +42,17 @@ rain_fields={}
 for i in range(5):
     rain_fields[(i*10800,'rainTotal')]=fill(i*8)
     rain_fields[(i*10800,'ww')]=fill(61)
-assert r.analyze(rain_fields,43200)['durationrain'][0]==1
-assert r.analyze(rain_fields,10800)['durationrain'][0]==1 # warn before the total has accumulated
+assert r.analyze(rain_fields,43200)['durationrain'][0]==2
+assert r.analyze(rain_fields,10800)['durationrain'][0]==2 # warn before the total has accumulated
 mixed_rain=dict(rain_fields);mixed_rain[(21600,'ww')]=fill(68)
 assert r.analyze(mixed_rain,10800)['durationrain'][0]==255
 def storm_code(a,b):
     models=[dict(model=m,run=0,step=.02,fields=fields) for m,fields in [('ICON-D2',a),('GFS',b)]]
     return base64.b64decode(r.build(0,models,[end])['periods'][0]['layers']['storm'])[0]
-assert storm_code(f,f)==22 # ingredients alone are not active warnings
+assert storm_code(f,f)==23 # ingredients alone are not active warnings
 explicit=dict(f);explicit[(end,'ww')]=fill(95)
 convective=dict(f);convective.update(field(0,convTotal=0));convective[(end,'convTotal')]=fill(3)
-assert storm_code(explicit,convective)==12
+assert storm_code(explicit,convective)==13
 hourly={**field(end,ww=61,temp2=8),**{(i*3600,'rainTotal'):fill(v) for i,v in enumerate([0,0,17,18])}}
 assert r.analyze(hourly,end)['rain'][0]==1 # not missed by 3h threshold
 assert r.analyze(field(end,temp2=0),end)['frost'][0]==0
@@ -107,3 +107,11 @@ models=[dict(model='ICON-D2',run=0,step=.02,fields=field(end,temp2=-13)),dict(mo
 p=r.build(0,models,[end])['periods'][0]
 assert base64.b64decode(p['layers']['frost'])[0]==11
 assert np.frombuffer(base64.b64decode(p['metrics']['frost']),dtype='<i2')[0]==-20
+
+# New local duration and extreme-hail reference cases.
+assert r.reference_level(np.array([10.,20.,26.]),np.array([5.,5.,3.]),r.SNOW_LOW).tolist()==[2,3,5]
+assert r.hail_level(np.array([0.,1.,2.,3.,7.,8.,8.1,np.nan])).tolist()==[0,1,2,3,4,4,5,255]
+a=fill(3);zero=fill(0);three=fill(3);missing=fill(np.nan)
+blocks=[(a,three,zero,three),(a,three,zero,three),(missing,three,zero,three),(a,three,zero,three)]
+ev=r.event_totals(blocks,[10800,21600,32400,43200])
+assert ev[0][0][0]==6 and ev[1][1][0]==6 and np.isnan(ev[2][0][0]) and ev[3][0][0]==3
