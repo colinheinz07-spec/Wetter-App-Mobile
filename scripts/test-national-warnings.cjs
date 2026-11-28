@@ -143,8 +143,8 @@ assert.doesNotMatch(el('national-warning').innerHTML,/id="nw-list"/);
 
 
 // Uniform colours and severity priority across live/model overlays.
-const cleanAreas=w.contourMarkup(Uint8Array.from([1,2,5,0]),{west:7,south:50,nx:2,ny:2,step:.02},true);
-assert.equal(cleanAreas.length,5);
+const cleanAreas=w.contourMarkup(Uint8Array.from([1,2,255,0]),{west:7,south:50,nx:2,ny:2,step:.02},true);
+assert.equal(cleanAreas.length,6);
 assert.match(cleanAreas[1],/#edc844/);assert.match(cleanAreas[2],/#f18b26/);
 assert.doesNotMatch(cleanAreas.join(''),/opacity/);
 assert.match(w.composeWarningAreas([['missing','A1','A2','',''],['','B1','','B3','']]),/missingA1B1A2B3/);
@@ -152,3 +152,7 @@ assert.equal((w.gridContour(Uint8Array.from([0,1,1,0]),2,2,1).match(/M/g)||[]).l
 
 assert.deepEqual([1,0,-.1,-9.9,-10,-20,-20.1,NaN].map(w.frostLevel),[0,0,1,1,2,2,3,0]);
 assert.deepEqual([[12,-2],[13,-9],[13,-10],[14,-20],[14,-21],[31,-1],[255,NaN]].map(([c,t])=>w.legacyFrostCode(c,t)),[11,11,12,12,13,31,255]);
+
+assert.equal(w.modelStage(15),'active');assert.equal(w.modelStage(25),'risk');assert.equal(w.modelStage(35),'active');
+assert.equal(w.MAX_ZOOM,16);assert.deepEqual(w.heightSteps(2500),[200,400,600,800,1000,1500,2000,2500]);
+const l5=w.contourMarkup(Uint8Array.from([1,5,255,0]),{west:7,south:50,nx:2,ny:2,step:.02},true);assert.match(l5[5],/#450568/);assert.match(l5[0],/#85929b/);

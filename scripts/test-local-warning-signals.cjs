@@ -1,7 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const source=fs.readFileSync('assets/app.js','utf8');
-const begin=source.indexOf('function frostLevel('),end=source.indexOf('async function fetchHourlyModel(',begin);
+const begin=source.indexOf('function snowReferenceLevel('),end=source.indexOf('async function fetchHourlyModel(',begin);
 assert.ok(begin>=0&&end>begin,'local hazard orchestration exists');
 const hour=3600000,now=Date.parse('2026-11-23T20:00:00Z'),point=[7.85,50.55];
 let fog={state:'risk',time:now-10*60000,visibility:NaN,source:'ICON-D2-RUC · Taupunkt nahe Temperatur und schwacher Wind'};
@@ -52,3 +52,5 @@ assert.ok(trace&&!trace.range&&trace.note.includes('keinen belastbar quantifizie
 console.log('PASS: local fog potential/observed visibility, freezing wet road risk, snowfall range and zero-centimeter trace');
 
 assert.deepEqual(Array.from(vm.runInContext('[0,-0.1,-9.9,-10,-20,-20.1,NaN].map(frostLevel)',ctx)),[0,1,1,2,2,3,0]);
+
+assert.equal(vm.runInContext('snowReferenceLevel(20,5,300)',ctx),3);
