@@ -93,21 +93,24 @@ function areaStats(period,g,kind,n,stage){
  const rain3=signal('stormrain')?metricAt(period,'stormrain',n):NaN;
  const snowMin=kind==='snow'?metricAt(period,'snowMin',n):NaN,snowMax=kind==='snow'?metricAt(period,'snowMax',n):NaN;
  const hailCm=signal('hail')?metricAt(period,'hail',n):NaN;
+ const rainHour=kind==='rain'?metricAt(period,'rainHour',n):NaN,stau=kind==='durationrain'&&metricAt(period,'rainStau',n)>0;
  const snowKnown=Number.isFinite(snowMin)&&Number.isFinite(snowMax)&&snowMin>=0&&snowMax>=snowMin;
  return {lo:known?v:Infinity,hi:known?v:-Infinity,sum:known?v:0,known:+known,count:1,
   snowLo:snowKnown?snowMin:0,snowHi:snowKnown?snowMax:0,snowKnown:+snowKnown,
   iceCause:metricAt(period,'iceCause',n)||0,gust:Number.isFinite(gust)?gust:-Infinity,
   hour:Number.isFinite(hour)?hour:-Infinity,rain3:Number.isFinite(rain3)?rain3:-Infinity,
-  hail:signal('hail'),hailCm:Number.isFinite(hailCm)?hailCm:-Infinity,windRisk:signal('stormwind'),rainRisk:signal('stormrain')};
+  rainHour:Number.isFinite(rainHour)?rainHour:-Infinity,stau,hail:signal('hail'),hailCm:Number.isFinite(hailCm)?hailCm:-Infinity,windRisk:signal('stormwind'),rainRisk:signal('stormrain')};
 }
 function eventSummary(kind,stats,stage,level=1,qualifier='',modern=true){
  const title=hazardTitle(kind,level),prefix=qualifier?qualifier+' ':'';
+ const verb=stage==='risk'||stage==='upcoming'?'sind möglich':'werden erwartet';
  const n=v=>v.toLocaleString('de-DE',{maximumFractionDigits:1}),range=(a,b)=>a===b?n(a):n(Math.min(a,b))+' bis '+n(Math.max(a,b));
- if(modern&&kind==='frost'&&Number.isFinite(stats.lo))return prefix+(qualifier?'wird ':'Es wird ')+title.toLowerCase().replace('frost','Frost')+' mit Temperaturen '+(stats.lo===stats.hi?'von ':'zwischen ')+range(stats.lo,stats.hi)+' °C erwartet.';
+ if(modern&&kind==='frost'&&Number.isFinite(stats.lo))return prefix+(qualifier?'wird ':'Es wird ')+(title==='Luftfrost'?'Luftfrost':title[0].toLowerCase()+title.slice(1))+' mit Temperaturen '+(stats.lo===stats.hi?'von ':'zwischen ')+range(stats.lo,stats.hi)+' °C erwartet.';
  if(modern&&kind==='snow'&&stats.snowKnown===stats.count&&stats.snowHi>0){const lo=Math.floor(stats.snowLo),hi=Math.max(1,Math.ceil(stats.snowHi));return prefix+(qualifier?'werden ':'Es werden ')+range(lo,hi)+' cm Neuschnee erwartet.';}
  if(kind==='hail'&&Number.isFinite(stats.hi)&&stats.hi>0)return 'Hagel bis '+n(stats.hi)+' cm möglich (modellierte maximale Korngröße).';
  if(kind==='wind'||kind==='stormwind'){if(Number.isFinite(stats.hi))return prefix+(qualifier?'werden ':'Es werden ')+'Böen bis '+n(stats.hi)+' km/h erwartet.';}
- if(kind==='durationrain'&&stats.known===stats.count&&stats.sum>0)return prefix+(qualifier?'werden ':'Es werden ')+n(stats.sum)+' l/m² Niederschlag im Warnzeitraum erwartet.';
+ if(kind==='durationrain'&&stats.known===stats.count&&stats.sum>0)return (stats.stau?'In Staulagen werden ':'Es werden ')+n(stats.sum)+' l/m² Niederschlag im Warnzeitraum erwartet.';
+ if(kind==='rain'&&Number.isFinite(stats.rainHour)&&stats.rainHour>=15)return 'Starkregen mit Mengen bis '+n(stats.rainHour)+' l/m² innerhalb einer Stunde '+verb+'.'+(stats.known===stats.count?' Im Warnzeitraum insgesamt '+n(stats.sum)+' l/m².':'');
  const subject=kind==='frost'?'Luftfrost':TYPES[kind];let lead=stage==='active'?'Am ausgewählten Ort wird '+subject+' erwartet.':'Am ausgewählten Ort besteht die Möglichkeit für '+subject+'.';
  if(kind==='freezing')lead='Glättegefahr durch gefrierenden Regen oder Sprühregen am ausgewählten Ort.';
  if(kind==='ice'){
@@ -138,9 +141,10 @@ function eventSummary(kind,stats,stage,level=1,qualifier='',modern=true){
 }
 function groupWarnings(periods,g,kind,n,stage){
  const events=[];for(const p of periods){const c=p.decoded[kind]?.[n];if(!stageMatches(c,stage))continue;const stats=areaStats(p,g,kind,n,stage),last=events.at(-1);
- const timing=p.timingDecoded;const from=kind==='snow'&&timing? p.start+3600*timing.snowStart[n]:p.start,to=kind==='snow'&&timing?p.start+3600*timing.snowEnd[n]:p.end;
+ const timing=p.timingDecoded;const starts=kind==='snow'?timing?.snowStart:kind==='frost'?timing?.frostStart:null,ends=kind==='snow'?timing?.snowEnd:kind==='frost'?timing?.frostEnd:null;
+ const from=starts?p.start+3600*starts[n]:p.start,to=ends?p.start+3600*ends[n]:p.end;
  if(to<=from)continue;
- if(last&&last.end===from&&(p.warningVersion!==3||modelLevel(last.code)===modelLevel(c))){last.end=to;last.code=modelLevel(c)>modelLevel(last.code)?c:last.code;const s=last.stats;last.stats={lo:Math.min(s.lo,stats.lo),hi:Math.max(s.hi,stats.hi),sum:s.sum+stats.sum,known:s.known+stats.known,count:s.count+stats.count,snowLo:s.snowLo+stats.snowLo,snowHi:s.snowHi+stats.snowHi,snowKnown:s.snowKnown+stats.snowKnown,iceCause:s.iceCause|stats.iceCause,gust:Math.max(s.gust,stats.gust),hour:Math.max(s.hour,stats.hour),rain3:Math.max(s.rain3,stats.rain3),hail:s.hail||stats.hail,hailCm:Math.max(s.hailCm??-Infinity,stats.hailCm??-Infinity),windRisk:s.windRisk||stats.windRisk,rainRisk:s.rainRisk||stats.rainRisk}}
+ if(last&&last.end===from&&(p.warningVersion!==3||modelLevel(last.code)===modelLevel(c))){last.end=to;last.code=modelLevel(c)>modelLevel(last.code)?c:last.code;const s=last.stats;last.stats={lo:Math.min(s.lo,stats.lo),hi:Math.max(s.hi,stats.hi),sum:s.sum+stats.sum,known:s.known+stats.known,count:s.count+stats.count,snowLo:s.snowLo+stats.snowLo,snowHi:s.snowHi+stats.snowHi,snowKnown:s.snowKnown+stats.snowKnown,iceCause:s.iceCause|stats.iceCause,gust:Math.max(s.gust,stats.gust),hour:Math.max(s.hour,stats.hour),rain3:Math.max(s.rain3,stats.rain3),rainHour:Math.max(s.rainHour??-Infinity,stats.rainHour??-Infinity),stau:s.stau||stats.stau,hail:s.hail||stats.hail,hailCm:Math.max(s.hailCm??-Infinity,stats.hailCm??-Infinity),windRisk:s.windRisk||stats.windRisk,rainRisk:s.rainRisk||stats.rainRisk}}
  else events.push({kind,code:c,start:from,end:to,stats,modern:p.warningVersion===3})}
  return events.map(e=>({...e,summary:eventSummary(kind,e.stats,stage,modelLevel(e.code),'',e.modern)}));
 }
@@ -225,7 +229,7 @@ function terrainMarkup(d){
  if(!d?.terrainRaw)return '';if(reliefCache.has(d))return reliefCache.get(d);
  const g=d.grid,raw=d.terrainRaw,n=g.nx*g.ny,values=Float32Array.from({length:n},(_,i)=>terrainValue(raw,i)),mask=new Uint8Array(n),[x,y]=project(g.west-g.step/2,g.south-g.step/2),transform=`translate(${x} ${y}) scale(${g.step*MAP_DX} ${-g.step*MAP_DY})`;
  const paths=heightSteps().map(h=>{for(let i=0;i<n;i++)mask[i]=values[i]>=h?1:0;const p=gridContour(mask,g.nx,g.ny,1);return p?`<path d="${p}" fill="none" stroke-width="${h%1000===0?0.8:0.4}" stroke-opacity="${h%1000===0?.45:.26}" vector-effect="non-scaling-stroke"/>`:''}).join('');
- const out=`<g class="nw-terrain" clip-path="url(#nw-de-clip)" stroke="#526775" transform="${transform}" pointer-events="none">${paths}</g>`;reliefCache.set(d,out);return out;
+ const out=`<g class="nw-terrain" clip-path="url(#nw-de-clip)" pointer-events="none"><g stroke="#526775" transform="${transform}">${paths}</g></g>`;reliefCache.set(d,out);return out;
 }
 function heightQualifier(d,event,n,stage){
  if(!d?.terrainRaw||!['snow','frost','wind','ice','freezing'].includes(event.kind))return '';
@@ -286,7 +290,7 @@ if(typeof ResizeObserver==='function')new ResizeObserver(applyViewport).observe(
 let geometry=null;function getGeometry(){return geometry||(geometry=mapGeometry(globalThis.WEATHER_BASEMAP,globalThis.WEATHER_EXTRA_GEO))}
 function currentRadarWindow(){return stage==='active'&&['all','now','0-6'].includes(windowId)}
 function storms(t){return currentRadarWindow()&&stormFresh(stormData,t)?stormData.cells.filter(c=>(filter==='all'||stormKinds(c).includes(filter))&&(c.point[0]>=4&&c.point[0]<=17&&c.point[1]>=46&&c.point[1]<=56||c.path.some(p=>p.point[0]>=5&&p.point[0]<=15.5&&p.point[1]>=47&&p.point[1]<=55.2))):[]}
-function stormColor(c){return ['#437caa','#c48a16','#e14f36','#a40085'][stormLevel(c)]||'#437caa'}
+function stormColor(c){return ['#437caa',...OWN][stormLevel(c)]||'#437caa'}
 function stormMarkup(c,t){const color=stormColor(c),id=esc(c.id),isSelected=selectedStorm===c.id,[x,y]=project(...c.point).map(rounded),future=c.path.filter(p=>p.time>t),line=[c.point,...future.map(p=>p.point)].map(p=>project(...p).map(rounded).join(',')).join(' ');const corridor=stormCorridor(c,t).map(p=>ringPath(p.ring)).join('');return `<g data-storm-id="${id}" role="button" aria-label="${stormTitle(c)} · Details"><title>${stormTitle(c)} · Zugbahn möglich</title>${corridor?`<path d="${corridor}" fill="${color}" fill-opacity=".24" stroke="${color}" stroke-dasharray="5 4" stroke-width="1.2"/>`:''}<path d="${stormFootprint(c).map(ringPath).join('')}" fill="${color}" fill-opacity=".62" stroke="${color}" stroke-width="2"/>${future.length?`<polyline points="${line}" fill="none" stroke="${color}" stroke-width="2.5" stroke-dasharray="5 3"/>${future.filter(p=>(p.time-stormData.observed)%900===0||p===future.at(-1)).map(p=>{const [px,py]=project(...p.point).map(rounded);return `<g transform="translate(${px} ${py})"><g class="nw-zoom-stable"><circle r="3.5" fill="${color}" stroke="white"/><text x="5" y="-5" font-size="11" fill="${color}" stroke="white" stroke-width="2" paint-order="stroke">${Math.round((p.time-stormData.observed)/60)}′</text></g></g>`}).join('')}`:''}<g transform="translate(${x} ${y})"><g class="nw-zoom-stable"><circle r="${isSelected?13:10}" fill="${color}" stroke="white" stroke-width="2"/>${c.lightning>0?'<path d="M2 -7 -5 1h5l-2 7 8-10H1Z" fill="white"/>':'<circle r="3" fill="white"/>'}</g></g></g>`}
 function riskData(t){return fresh(risk,5400,t)&&validRisk(risk)?risk:null}
 function displayRisk(t){return stage==='upcoming'?(fresh(watchRisk,5400,t)&&validRisk(watchRisk)?watchRisk:null):riskData(t)}
@@ -397,8 +401,8 @@ function decodeRisk(d){
  if(typeof d.terrain==='string'&&d.terrain.length===4*Math.ceil(size*2/3))try{d.terrainRaw=atob(d.terrain)}catch{}
  for(const p of d.periods){p.decoded={};p.metricValues={};
   for(const k in TYPES){const raw=p.layers[k]&&atob(p.layers[k]),a=new Uint8Array(size);if(raw){for(let i=0;i<a.length;i++)a[i]=raw.charCodeAt(i)}else a.fill(255);p.decoded[k]=a}
-  for(const k of [...Object.keys(METRICS),'iceCause','stormhour','snowMin','snowMax']){const metric=p.metrics?.[k];if(typeof metric==='string'&&metric.length===4*Math.ceil(size*2/3))try{p.metricValues[k]=atob(metric)}catch{}}
-  if(p.warningVersion===3&&p.timing)try{const s=atob(p.timing.snowStart),e=atob(p.timing.snowEnd);if(s.length===size&&e.length===size)p.timingDecoded={snowStart:Uint8Array.from(s,c=>Math.min(2,c.charCodeAt(0))),snowEnd:Uint8Array.from(e,c=>Math.min(3,c.charCodeAt(0)))};}catch{}
+  for(const k of [...Object.keys(METRICS),'iceCause','stormhour','snowMin','snowMax','rainHour','rainStau']){const metric=p.metrics?.[k];if(typeof metric==='string'&&metric.length===4*Math.ceil(size*2/3))try{p.metricValues[k]=atob(metric)}catch{}}
+  if(p.warningVersion===3&&p.timing)try{const s=atob(p.timing.snowStart),e=atob(p.timing.snowEnd);if(s.length===size&&e.length===size)p.timingDecoded={snowStart:Uint8Array.from(s,c=>Math.min(2,c.charCodeAt(0))),snowEnd:Uint8Array.from(e,c=>Math.min(3,c.charCodeAt(0)))};if(p.timingDecoded&&p.timing.frostStart&&p.timing.frostEnd){const a=atob(p.timing.frostStart),b=atob(p.timing.frostEnd);if(a.length===size&&b.length===size){p.timingDecoded.frostStart=Uint8Array.from(a,c=>Math.min(2,c.charCodeAt(0)));p.timingDecoded.frostEnd=Uint8Array.from(b,c=>Math.min(3,c.charCodeAt(0)));}}}catch{}
   if(p.frostThresholdVersion!==2){const a=p.decoded.frost;for(let i=0;i<a.length;i++)a[i]=legacyFrostCode(a[i],metricAt(p,'frost',i));}
  }
 }

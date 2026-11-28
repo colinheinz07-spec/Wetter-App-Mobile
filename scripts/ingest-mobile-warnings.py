@@ -15,7 +15,7 @@ import numpy as np
 ROOT='https://raw.githubusercontent.com/colinheinz07-spec/Wetter-App/generated-native-'
 GRID=dict(west=5.5,south=47.,step=.02,nx=481,ny=411)
 MODELS=(('ICON-D2','icon-d2-de',18),('ICON-EU','icon-eu-de',24),('IFS','ifs-de',24),('GFS','gfs-de',24))
-FIELDS=('temp2','dew','wind','gust','visibility','ww','ptype','rainTotal','convTotal','tground','rh2','mlcape','mucape','mlcin','s06','orog','ship','stp','snowWaterTotal','snowGspTotal','snowConTotal')
+FIELDS=('temp2','dew','wind','gust','visibility','ww','ptype','rainTotal','convTotal','tground','rh2','mlcape','mucape','mlcin','s06','orog','u850','v850','rh850','z850','ship','stp','snowWaterTotal','snowGspTotal','snowConTotal')
 TYPES=('frost','wind','heat','fog','fogpotential','snow','freezing','ice','rain','durationrain','storm','stormwind','stormrain','hail','rotation')
 POTENTIAL={'ice','fogpotential','stormwind','stormrain','hail','rotation'}
 N=GRID['nx']*GRID['ny']
@@ -71,6 +71,34 @@ def block_snow(fields,end):
             np.where(precise&wet.any(axis=0),wet.argmax(axis=0),0).astype(np.uint8),
             np.where(precise&wet.any(axis=0),3-wet[::-1].argmax(axis=0),3).astype(np.uint8))
 
+def stau_signal(fields,end,amount,level):
+    # Conservative diagnostic: wet air at 850 hPa above ground, directed
+    # towards rising terrain, with an independently modelled event enhancement.
+    # Never multiply precipitation amounts or create a warning from terrain alone.
+    u=field_value(fields,end,'u850');v=field_value(fields,end,'v850')
+    rh=field_value(fields,end,'rh850');z=field_value(fields,end,'z850');h=field_value(fields,end,'orog')
+    speed=np.hypot(u,v);valid=np.isfinite(speed)&(speed>=5)&(rh>=80)&(z>h+100)
+    x=np.tile(np.arange(GRID['nx']),GRID['ny']);y=np.repeat(np.arange(GRID['ny']),GRID['nx'])
+    # 12 km upstream, longitude scaled by latitude.
+    ux=np.rint(np.where(valid,12*u/np.maximum(speed,.1)/(111.195*GRID['step']*np.cos(np.deg2rad(GRID['south']+y*GRID['step']))),0)).astype(int)
+    uy=np.rint(np.where(valid,12*v/np.maximum(speed,.1)/(111.195*GRID['step']),0)).astype(int)
+    xx=x-ux;yy=y-uy;covered=(xx>=0)&(xx<GRID['nx'])&(yy>=0)&(yy<GRID['ny'])
+    j=np.clip(yy,0,GRID['ny']-1)*GRID['nx']+np.clip(xx,0,GRID['nx']-1)
+    return (valid&covered&(level>=2)&(level<255)&(h-h[j]>=100)&np.isfinite(amount)&np.isfinite(amount[j])&(amount>=1.3*amount[j])&(amount-amount[j]>=15)).astype(np.uint8)
+
+def frost_block(fields,end):
+    values=np.stack([field_value(fields,end-s,'temp2') for s in (7200,3600,0)])
+    complete=np.isfinite(values).all(axis=0)
+    lev=frost_level(values)
+    peak=np.max(np.where(lev==255,0,lev),axis=0)
+    wet=(lev>0)&(lev<255)
+    hit=lev==peak[None,:]
+    contiguous=~(hit[0]&~hit[1]&hit[2])
+    precise=complete&contiguous&(peak>0)
+    return (np.where(precise,hit.argmax(axis=0),0).astype(np.uint8),
+            np.where(precise,3-hit[::-1].argmax(axis=0),3).astype(np.uint8),
+            np.fmax.reduce(values))
+
 def prepare_events(model,ends):
     f=model['fields'];snow=[block_snow(f,e) for e in ends]
     rain=[liquid_amount(f,e) for e in ends]
@@ -92,7 +120,7 @@ def prepare_events(model,ends):
                 short=np.where((rain[i]>=.1)&(rain[j]>=.1)&(rain[j+1]>=.1)&(six<255),np.maximum(np.where(short==255,0,short),six),short)
         long=reference_level(ra,rh,LONG_RAIN)
         long=np.where(np.isfinite(ra)&(rh>=12),long,np.where(np.isfinite(rain[i]),0,255)).astype(np.uint8)
-        result.append(dict(snow=np.where(np.isfinite(a)&(a>=.1),np.maximum(1,snow_level),np.where(np.isfinite(a),0,255)).astype(np.uint8),snowAmount=a,snowStart=start,snowEnd=finish,durationrain=long,rain=short))
+        result.append(dict(snow=np.where(np.isfinite(a)&(a>=.1),np.maximum(1,snow_level),np.where(np.isfinite(a),0,255)).astype(np.uint8),snowAmount=a,snowStart=start,snowEnd=finish,durationrain=long,rain=short,rainStau=stau_signal(f,e,ra,long)))
     return result
 
 def load_hail(now,ends):
@@ -368,16 +396,21 @@ def build(now,models,ends,watch=False,hail=None,prepared=None):
         priority=sorted(zip(models,rows),key=lambda mr:mr[0]['step'])
         prepared_by_model={id(m):prepared[i][ei] for i,m in enumerate(models)}
         snow_start=np.full(N,0,np.uint8);snow_end=np.full(N,3,np.uint8);timing_known=np.zeros(N,bool)
+        frost_start=np.zeros(N,np.uint8);frost_end=np.full(N,3,np.uint8);frost_timing=np.zeros(N,bool)
+        stau=np.zeros(N,np.uint8)
         for model,row in priority:
             ev=prepared_by_model[id(model)];match=(row['snow']==codes['snow']%10)&(row['snow']>0)&(row['snow']<255)&~timing_known
             snow_start[match]=ev['snowStart'][match];snow_end[match]=ev['snowEnd'][match];timing_known|=match
+            frost_match=(row['frost']==codes['frost']%10)&(row['frost']>0)&(row['frost']<255)&~frost_timing
+            fs,fz,_=frost_block(model['fields'],end);frost_start[frost_match]=fs[frost_match];frost_end[frost_match]=fz[frost_match];frost_timing|=frost_match
+            stau=np.maximum(stau,np.where((row['durationrain']==codes['durationrain']%10)&(row['durationrain']<255),ev['rainStau'],0).astype(np.uint8))
         if hail_size is not None:metrics['hail']=pack(np.where(np.isfinite(hail_size)&(hail_size>=0)&(hail_size<3276),np.rint(hail_size*10),-32768).astype('<i2'))
-        for kind,field in {'frost':'temp2','heat':'temp2','wind':'gust','fog':'visibility','snow':'snowCm','rain':'rainTotal','freezing':'rainTotal','durationrain':'rainTotal','stormrain':'rainTotal','stormwind':'gust','stormhour':'hourRain','iceCause':'iceCause'}.items():
+        for kind,field in {'frost':'temp2','heat':'temp2','wind':'gust','fog':'visibility','snow':'snowCm','rain':'rainTotal','freezing':'rainTotal','durationrain':'rainTotal','stormrain':'rainTotal','stormwind':'gust','stormhour':'hourRain','rainHour':'hourRain','iceCause':'iceCause'}.items():
             chosen=np.full(N,np.nan,dtype=np.float32)
             for model,row in priority:
-                f=model['fields'];hazard={'stormhour':'stormrain','iceCause':'ice'}.get(kind,kind)
+                f=model['fields'];hazard={'stormhour':'stormrain','rainHour':'rain','iceCause':'ice'}.get(kind,kind)
                 if field=='snowCm':values=prepared_by_model[id(model)]['snowAmount']
-                elif field=='rainTotal':values=delta(f,end,'rainTotal')
+                elif field=='rainTotal':values=liquid_amount(f,end) if kind in ('rain','durationrain','stormrain') else delta(f,end,'rainTotal')
                 elif field=='hourRain':values=peak_hour_rain(f,end)
                 elif field=='iceCause':values=ice_causes(f,end).astype(np.float32)
                 elif kind=='frost':values=minimum_temp(f,end)
@@ -389,6 +422,7 @@ def build(now,models,ends,watch=False,hail=None,prepared=None):
                 chosen[valid]=values[valid]
             packed=np.where(np.isfinite(chosen)&(np.abs(chosen)<3276),np.rint(chosen*10),-32768).astype('<i2')
             metrics[kind]=pack(packed)
+        metrics['rainStau']=pack((stau.astype('<i2')*10).astype('<i2'))
         # Model spread, not a calibrated probability interval. Retain all
         # independent models with a valid snow phase and quantified snowfall.
         # This avoids a single rounded "0 cm" despite a snow signal.
@@ -405,7 +439,7 @@ def build(now,models,ends,watch=False,hail=None,prepared=None):
         for key,values in [('snowMin',snow_lower),('snowMax',snow_upper)]:
             packed=np.where(np.isfinite(values)&(values>=0)&(values<3276),np.rint(values*10),-32768).astype('<i2')
             metrics[key]=pack(packed)
-        periods.append(dict(start=end-10800,end=end,layers=layers,metrics=metrics,metricVersion=2,frostThresholdVersion=2,warningVersion=3,timing={'snowStart':pack(snow_start),'snowEnd':pack(snow_end)}))
+        periods.append(dict(start=end-10800,end=end,layers=layers,metrics=metrics,metricVersion=2,frostThresholdVersion=2,warningVersion=3,timing={'snowStart':pack(snow_start),'snowEnd':pack(snow_end),'frostStart':pack(frost_start),'frostEnd':pack(frost_end)}))
     grid=dict(GRID,step=.04,nx=241,ny=206) if watch else GRID
     return dict(schema=1,generated=now,grid=grid,terrain=terrain_packed,models=[{k:m[k] for k in ('model','run','step')} for m in models],periods=periods)
 

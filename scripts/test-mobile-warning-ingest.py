@@ -115,3 +115,7 @@ a=fill(3);zero=fill(0);three=fill(3);missing=fill(np.nan)
 blocks=[(a,three,zero,three),(a,three,zero,three),(missing,three,zero,three),(a,three,zero,three)]
 ev=r.event_totals(blocks,[10800,21600,32400,43200])
 assert ev[0][0][0]==6 and ev[1][1][0]==6 and np.isnan(ev[2][0][0]) and ev[3][0][0]==3
+
+# Stau diagnosis cannot raise an unsupported warning and must have wind data.
+assert not r.stau_signal({},end,fill(100),fill(3)).any()
+assert not r.stau_signal(field(end,u850=10,v850=0,rh850=90,z850=1500,orog=500),end,fill(100),fill(3)).any()
