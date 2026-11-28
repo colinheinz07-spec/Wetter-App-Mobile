@@ -1,1 +1,1 @@
-{"schema":1,"generated":1795840252,"observed":1795839900,"source":"DWD KONRAD3D","cells":[],"radarSites":17,"missingRadarSites":[]}
+{"schema":1,"generated":1795840553,"observed":1795840200,"source":"DWD KONRAD3D","cells":[],"radarSites":17,"missingRadarSites":["ess"]}
